@@ -1,6 +1,6 @@
-# PhaseTEM
+# PhaseT3M
 
-**PhaseTEM** is a reconstruction package designed for High-Resolution Transmission Electron Microscopy (HRTEM) data analysis.
+**PhaseT3M** is a reconstruction package designed for High-Resolution Transmission Electron Microscopy (HRTEM) data analysis.
 
 ### Features:
 1. **Focal Series Reconstruction**  
