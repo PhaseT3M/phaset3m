@@ -10,4 +10,4 @@
    Combines tilt and focal series to perform 3D phase-contrast tomography.
 
 ---
-This package follows the structure of the **py4DSTEM** package, ensuring compatibility and familiarity for users of similar tools.
+This package follows the structure of the **[py4DSTEM](https://github.com/py4dstem/py4DSTEM)** package, ensuring compatibility and familiarity for users of similar tools.
