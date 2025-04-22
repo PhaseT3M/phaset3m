@@ -6,8 +6,8 @@
 1. **Focal Series Reconstruction**  
    Enables precise reconstruction from focal series images.
 
-2. **Three-Dimensional Phase Contrast Tomography**  
-   Combines tilt and focal series to perform 3D phase-contrast tomography.
+2. **Three-Dimensional Phase Retrieval-based Tomography**  
+   Combines multiple tilted focal series to perform 3D phase-contrast tomography.
 
 ---
 This package follows the structure of the **[py4DSTEM](https://github.com/py4dstem/py4DSTEM)** package, ensuring compatibility and familiarity for users of similar tools.
