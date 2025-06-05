@@ -247,7 +247,7 @@ class FocalSeriesReconstruction(
         self._chi_function = xp.zeros([1, self._num_defocus, self._padded_px[0], self._padded_px[1]], dtype=xp.float32)
         
         # create temperal coherence envelop function (treatment of temperal coherence)
-        self._temperal_coherence_envelop_function = xp.exp(-1/4*(xp.pi*defocus_spread)**2 * (self._aberrations_basis.T[self._C1_ind]/self._wavelength)**2).reshape([self._padded_px[0], self._padded_px[1]])
+        self._temperal_coherence_envelop_function = xp.exp(-1/4*(defocus_spread)**2 * (self._aberrations_basis.T[self._C1_ind]/2)**2).reshape([self._padded_px[0], self._padded_px[1]])
         
         # adam optimizer
         self._aberrations_coefs_m = xp.zeros([1, self._num_defocus, self._aberrations_basis.shape[1]], dtype=xp.float32)
