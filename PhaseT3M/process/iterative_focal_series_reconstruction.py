@@ -97,6 +97,7 @@ class FocalSeriesReconstruction(
         self._verbose = verbose
         self._device = device
         self._preprocessed = False
+        self._wavelength = electron_wavelength_angstrom(energy)
 
         slice_thicknesses = np.array(slice_thicknesses)
         if slice_thicknesses.shape == ():
@@ -118,11 +119,9 @@ class FocalSeriesReconstruction(
     def preprocess(
         self,
         amplitude_normalization: bool =  True,
-        gaussian_filter_sigma: float = 1,
-        rotation_real_space_degrees: float = None,
         aberrations_max_angular_order: int = 1,
         aberrations_max_radial_order: int = 2,
-        defocus_spread: float = 0.0,
+        defocus_spread: float = 0.0, # Cc/(delta E/ E)
         progress_bar: bool = True,
         **kwargs,
     ):
@@ -248,7 +247,7 @@ class FocalSeriesReconstruction(
         self._chi_function = xp.zeros([1, self._num_defocus, self._padded_px[0], self._padded_px[1]], dtype=xp.float32)
         
         # create temperal coherence envelop function (treatment of temperal coherence)
-        self._temperal_coherence_envelop_function = xp.exp(-1/4*defocus_spread**2 * self._aberrations_basis.T[self._C1_ind]**2).reshape([self._padded_px[0], self._padded_px[1]]).astype(xp.float32)
+        self._temperal_coherence_envelop_function = xp.exp(-1/4*(xp.pi*defocus_spread)**2 * (self._aberrations_basis.T[self._C1_ind]/self._wavelength)**2).reshape([self._padded_px[0], self._padded_px[1]])
         
         # adam optimizer
         self._aberrations_coefs_m = xp.zeros([1, self._num_defocus, self._aberrations_basis.shape[1]], dtype=xp.float32)
