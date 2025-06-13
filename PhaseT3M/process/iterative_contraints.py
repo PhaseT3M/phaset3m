@@ -326,7 +326,7 @@ class Contraints():
 
     def _object_denoise_tv_chambolle(
         self,
-        current_object,
+        current_object0,
         weight,
         axis,
         padding,
@@ -370,6 +370,10 @@ class Contraints():
         Adapted skimage.restoration.denoise_tv_chambolle.
         """
         xp = self._xp
+
+        if self._xp == cp:
+            current_object = xp.asnumpy(current_object0).copy()
+            xp = np
 
         if self._object_type == "complex":
             updated_object = current_object
@@ -472,5 +476,8 @@ class Contraints():
             updated_object = (
                 updated_object / xp.sum(updated_object) * current_object_sum
             )
+
+        if self._xp == cp:
+            updated_object = self._xp.array(updated_object)
 
         return updated_object

@@ -532,7 +532,9 @@ class TomographicReconstruction(
                     projection_b,
                     projection_c,
                 )
-
+                self.predicted_exit_waves = predicted_exit_waves
+                self.exit_waves = self._predicted_exit_waves[self._active_tilt_index]
+                
                 # adjoint operator
                 object_sliced, self._incident_wave[tilt_index] = self._adjoint(
                     object_sliced,
