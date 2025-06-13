@@ -9,7 +9,7 @@ import numpy as np
 from matplotlib.gridspec import GridSpec
 from mpl_toolkits.axes_grid1 import ImageGrid, make_axes_locatable
 from scipy.ndimage import rotate as rotate_np
-from PhaseTEM.process.tqdmnd import tqdmnd
+from PhaseT3M.process.tqdmnd import tqdmnd
 
 try:
     import cupy as cp
@@ -17,13 +17,13 @@ except (ModuleNotFoundError, ImportError):
     cp = np
 import os
 
-from PhaseTEM.datastack.datastack import DataStack
-from PhaseTEM.process.iterative_contraints import Contraints
-from PhaseTEM.process.iterative_methods import Reconstruction_methods
-from PhaseTEM.process.visualize_tools import Visualize_tools
-from PhaseTEM.process.rotation import Image3DRotation
+from PhaseT3M.datastack.datastack import DataStack
+from PhaseT3M.process.iterative_contraints import Contraints
+from PhaseT3M.process.iterative_methods import Reconstruction_methods
+from PhaseT3M.process.visualize_tools import Visualize_tools
+from PhaseT3M.process.rotation import Image3DRotation
 
-from PhaseTEM.process.utils import (electron_wavelength_angstrom,
+from PhaseT3M.process.utils import (electron_wavelength_angstrom,
                                     spatial_frequencies,
                                     aberrations_basis_function,
                                     gradient_strengh_correction,
