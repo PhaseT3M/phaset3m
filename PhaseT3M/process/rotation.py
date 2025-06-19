@@ -29,8 +29,8 @@ def generate_grid_1d(shape, pixel_size=1, flag_fourier=False, xp=np):
         x_lin = xp.fft.ifftshift(x_lin)
 
     else:
-        x_lin = (xp.arange(shape, dtype=xp.float32) - (shape -1)/ 2) * pixel_size
-        #x_lin = (xp.arange(shape, dtype=xp.float32) - (shape)// 2) * pixel_size
+        #x_lin = (xp.arange(shape, dtype=xp.float32) - (shape -1)/ 2) * pixel_size
+        x_lin = (xp.arange(shape, dtype=xp.float32) - (shape)// 2) * pixel_size
 
     return x_lin
 
@@ -276,7 +276,8 @@ class Image3DRotation:
         volume_shape = xp.asarray(volume.shape)
         tf = xp.asarray(swap_zxy_to_xyz.T @ rot_matrix.T @ swap_zxy_to_xyz)
 
-        in_center = (volume_shape - 1) / 2
+        #in_center = (volume_shape - 1) / 2
+        in_center = (volume_shape) // 2
         out_center = tf @ in_center
         offset = in_center - out_center
 
