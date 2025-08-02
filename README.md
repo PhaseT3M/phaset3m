@@ -11,3 +11,12 @@
 
 ---
 This package follows the structure of the **[py4DSTEM](https://github.com/py4dstem/py4DSTEM)** package, ensuring compatibility and familiarity for users of similar tools.
+
+## 🚀 Installation and Run
+
+### 📦 Installation
+
+Install the required dependencies:
+
+```bash
+pip install -r requirements.txt
