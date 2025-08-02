@@ -28,5 +28,6 @@ pip install -e .
 Run the example
 
 ```bash
-python ,
+python ./examples/test_tilt_recon.ipynb
+python ./examples/test_tilt_recon.ipynb
 ```
