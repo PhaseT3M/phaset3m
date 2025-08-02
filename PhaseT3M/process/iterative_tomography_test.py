@@ -32,7 +32,7 @@ from PhaseT3M.process.utils import (electron_wavelength_angstrom,
 
 warnings.simplefilter(action="always", category=UserWarning)
 
-class TomographicReconstruction(
+class TomographicReconstruction_test(
     Contraints,
     Reconstruction_methods,
     Visualize_tools):
@@ -431,6 +431,7 @@ class TomographicReconstruction(
 
         if reset:
             self._object = self._object_initial.copy()
+            self._rot_object = self._object_initial.copy()
             self._incident_wave = self._incident_wave_initial.copy()
             self._aberrations_coefs = self._aberrations_coefs_initial.copy()
             self._image_shift_coefs = self._image_shift_coefs_initial.copy()
@@ -485,7 +486,9 @@ class TomographicReconstruction(
             tilt_indices = np.arange(self._num_tilts)
             np.random.shuffle(tilt_indices)
 
-            old_rot_matrix = np.eye(3)  # identity
+            #old_rot_matrix = np.eye(3)  # identity
+
+            
 
             for tilt_index in tilt_indices:
                 
@@ -494,12 +497,13 @@ class TomographicReconstruction(
                 tilt_error = 0.0
 
                 # 3D rotation
+                self._rot_object = self._object.copy() # rotated object
                 rot_matrix = self._tilt_orientation_matrices[self._active_tilt_index]
-                if np.sum(np.abs(rot_matrix-np.eye(3))) > 0.001 or self._num_tilts > 1:
-                    self._object = self._rotate3d.rotate_3d(self._object, rot_matrix @ old_rot_matrix.T)
+                if np.sum(np.abs(rot_matrix-np.eye(3))) > 0.01 or self._num_tilts > 1:
+                    self._rot_object = self._rotate3d.rotate_3d(self._rot_object, rot_matrix)
 
                 object_sliced = self._project_sliced_object(
-                    self._object, self._num_slices
+                    self._rot_object, self._num_slices
                 )
 
                 if not use_projection_scheme:
@@ -571,7 +575,7 @@ class TomographicReconstruction(
                 if collective_tilt_updates:
                     collective_object += self._rotate3d.rotate_3d(object_update, rot_matrix.T)
                 else:
-                    self._object += object_update
+                    self._object += self._rotate3d.rotate_3d(object_update, rot_matrix.T)#object_update
 
                     # Contraints
                     (
@@ -591,7 +595,7 @@ class TomographicReconstruction(
                         object_imag_positivity=object_imag_positivity,
                     )
                     
-                old_rot_matrix = rot_matrix
+                #old_rot_matrix = rot_matrix
 
 
                 # Normalize Error
@@ -601,8 +605,8 @@ class TomographicReconstruction(
                 )
                 error += tilt_error
 
-            if np.sum(np.abs(rot_matrix-np.eye(3))) > 0.001 or self._num_tilts >1:
-                self._object = self._rotate3d.rotate_3d(self._object, old_rot_matrix.T)
+            # if np.sum(np.abs(rot_matrix-np.eye(3))) > 0.01 or self._num_tilts >1:
+            #     self._object = self._rotate3d.rotate_3d(self._object, old_rot_matrix.T)
             
 
             # 3D Contraints

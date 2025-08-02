@@ -634,7 +634,7 @@ class Reconstruction_methods():
         step_size: float, optional
             Update step size
         normalization_min: float, optional
-            Probe normalization minimum as a fraction of the maximum overlap intensity
+            Nrmalization minimum
 
         Returns
         --------
@@ -644,17 +644,17 @@ class Reconstruction_methods():
 
         xp = self._xp
         beta = [0.9, 0.999]
-        eps = 1e-4
-
+        eps = 1e-8
+        normalization_min= 1
+        
         # aberration coefs-update
         predicted_exit_waves = xp.conj(xp.fft.fft2(predicted_exit_waves)) 
         exit_normalization = xp.abs(predicted_exit_waves) ** 2 
         exit_normalization = 1 / xp.sqrt(
             1e-16
-            + ((1 - normalization_min) * exit_normalization) ** 2
             + (normalization_min * xp.max(exit_normalization)) ** 2
         )
-        
+
         tmp_residual = predicted_exit_waves*xp.fft.fft2(residual_waves)*exit_normalization
         chi_function_grad = xp.real(2j*tmp_residual)
 
@@ -693,7 +693,7 @@ class Reconstruction_methods():
     #     step_size: float, optional
     #         Update step size
     #     normalization_min: float, optional
-    #         Probe normalization minimum as a fraction of the maximum overlap intensity
+    #         Nrmalization minimum
 
     #     Returns
     #     --------

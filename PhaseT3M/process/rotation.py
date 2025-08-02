@@ -8,18 +8,6 @@ try:
 except (ModuleNotFoundError, ImportError):
     cp = np
     
-# def generate_grid_1d(shape, pixel_size=1, flag_fourier=False, xp=np):
-#     """
-#     Generates a 1D grid, centered at the middle of the array.
-#     """
-#     pixel_size = 1.0 / pixel_size / shape if flag_fourier else pixel_size
-#     x_lin = (xp.arange(shape, dtype=xp.float32) - shape//2) * pixel_size
-#     if flag_fourier:
-#         x_lin = xp.fft.ifftshift(x_lin)#xp.roll(x_lin, - (shape-1) // 2)
-#         # if shape %2 ==0:
-#         #     x_lin[shape//2] = 0
-#     return x_lin
-
 def generate_grid_1d(shape, pixel_size=1, flag_fourier=False, xp=np):
     """
     Generates a 1D grid, centered at the middle of the array.
@@ -29,8 +17,8 @@ def generate_grid_1d(shape, pixel_size=1, flag_fourier=False, xp=np):
         x_lin = xp.fft.ifftshift(x_lin)
 
     else:
-        #x_lin = (xp.arange(shape, dtype=xp.float32) - (shape -1)/ 2) * pixel_size
-        x_lin = (xp.arange(shape, dtype=xp.float32) - (shape)// 2) * pixel_size
+        x_lin = (xp.arange(shape, dtype=xp.float32) - (shape -1)/ 2) * pixel_size
+        # x_lin = (xp.arange(shape, dtype=xp.float32) - (shape)// 2) * pixel_size
 
     return x_lin
 
@@ -226,7 +214,7 @@ class Image3DRotation:
         if np.linalg.norm(Vec) != 0:
             Vec = Vec / np.linalg.norm(Vec)
 
-        rotStepInit = 20
+        rotStepInit = 10
         numStep = int(np.floor(Ang / rotStepInit) + 1)
         rotStep = Ang / numStep
 
@@ -276,8 +264,8 @@ class Image3DRotation:
         volume_shape = xp.asarray(volume.shape)
         tf = xp.asarray(swap_zxy_to_xyz.T @ rot_matrix.T @ swap_zxy_to_xyz)
 
-        #in_center = (volume_shape - 1) / 2
-        in_center = (volume_shape) // 2
+        in_center = (volume_shape - 1) / 2
+        #in_center = (volume_shape) // 2
         out_center = tf @ in_center
         offset = in_center - out_center
 
