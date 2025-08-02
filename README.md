@@ -16,10 +16,17 @@ This package follows the structure of the **[py4DSTEM](https://github.com/py4dst
 
 ### 📦 Installation
 
-Install the required dependencies:
+Install the PhaseT3M
 
 ```bash
-pip install -r requirements.txt
+conda create -n PhaseT3M python = 3.11
+conda activate PhaseT3M
+conda install -c conda-forge cupy
+pip install -e .
 ```
 
+Run the example
 
+```bash
+python ,
+```
