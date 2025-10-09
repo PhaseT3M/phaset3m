@@ -214,7 +214,7 @@ class Image3DRotation:
         if np.linalg.norm(Vec) != 0:
             Vec = Vec / np.linalg.norm(Vec)
 
-        rotStepInit = 10
+        rotStepInit = 11
         numStep = int(np.floor(Ang / rotStepInit) + 1)
         rotStep = Ang / numStep
 
@@ -265,7 +265,7 @@ class Image3DRotation:
         tf = xp.asarray(swap_zxy_to_xyz.T @ rot_matrix.T @ swap_zxy_to_xyz)
 
         in_center = (volume_shape - 1) / 2
-        #in_center = (volume_shape) // 2
+        # in_center = (volume_shape) // 2
         out_center = tf @ in_center
         offset = in_center - out_center
 
