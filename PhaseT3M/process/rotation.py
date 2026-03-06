@@ -22,6 +22,49 @@ def generate_grid_1d(shape, pixel_size=1, flag_fourier=False, xp=np):
 
     return x_lin
 
+
+def shear_x_fft(image, shear, pixel_size=1, xp=np):
+    ny, nx = image.shape
+    x = generate_grid_1d(nx, pixel_size, flag_fourier=True, xp=xp)  # freq along x
+    y = generate_grid_1d(ny, pixel_size, flag_fourier=False, xp=xp)  # row indices
+    Y = y[:, None]  # shape (ny, 1)
+    X = x[None, :]  # shape (1, nx)
+    phase = xp.exp(-2j * xp.pi * shear * Y * X)
+
+    F = xp.fft.fft(image, axis=1)
+    F_sheared = F * phase
+    return xp.real(xp.fft.ifft(F_sheared, axis=1))
+
+def shear_y_fft(image, shear, pixel_size=1, xp=np):
+    ny, nx = image.shape
+    x = generate_grid_1d(nx, pixel_size, flag_fourier=False, xp=xp)  # column indices
+    y = generate_grid_1d(ny, pixel_size, flag_fourier=True, xp=xp)   # freq along y
+    Y = y[:, None]  # shape (ny, 1)
+    X = x[None, :]  # shape (1, nx)
+    phase = xp.exp(-2j * xp.pi * shear * Y * X)
+
+    F = xp.fft.fft(image, axis=0)
+    F_sheared = F * phase
+    return xp.real(xp.fft.ifft(F_sheared, axis=0))
+
+
+def rotate_fourier_shear(image, angle_deg, pixel_size=1, xp=np, output_type=np):
+    if xp == cp:
+        image = xp.array(image)
+
+    theta = -xp.deg2rad(angle_deg)
+    s1 = -xp.tan(theta / 2)
+    s2 = xp.sin(theta)
+
+    img1 = shear_x_fft(image, s1, pixel_size, xp=xp)
+    img2 = shear_y_fft(img1, s2, pixel_size, xp=xp)
+    img3 = shear_x_fft(img2, s1, pixel_size, xp=xp)
+
+    if xp == cp and output_type == np:
+        img3 = xp.asnumpy(img3)
+    return img3
+
+
 class Image3DRotation:
     """
     A rotation class to compute 3D rotation using FFT shearing method or real space interpolation(cubic).

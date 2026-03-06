@@ -10,3 +10,8 @@ from PhaseT3M.process.iterative_tomography import (
 from PhaseT3M.process.iterative_tomography_test import (
     TomographicReconstruction_test,
 )
+
+from PhaseT3M.process.iterative_tomography_Rtest import (
+    TomographicReconstruction_Rtest,
+)
+

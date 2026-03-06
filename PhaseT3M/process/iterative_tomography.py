@@ -100,7 +100,7 @@ class TomographicReconstruction(
 
         # Class-specific Metadata
         self._num_slices = num_slices
-        self._tilt_orientation_matrices = tuple(tilt_orientation_matrices)
+        self._tilt_orientation_matrices = np.array(tilt_orientation_matrices)
         self._num_tilts = len(tilt_orientation_matrices)
 
 
@@ -156,6 +156,9 @@ class TomographicReconstruction(
         self._num_voxels = self._object.shape[0]       
         self._num_defocus = np.max([len(self._datastack[indx].defocus) for indx in range(len(self._datastack))])
         self._padded_px = (self._object_shape[0]+2*self._object_padding_px[0],self._object_shape[1]+2*self._object_padding_px[1])
+
+        # Tilt orientation matrices initialization
+        self._tilt_orientation_matrices_initial = self._tilt_orientation_matrices.copy()
 
         # Precomputed propagator arrays
         self.sampling = self._pixel_sizes
