@@ -23,7 +23,7 @@
 Create and activate a new conda environment:
 
 ```bash
-conda create -n PhaseT3M python=3.11
+conda create -n PhaseT3M python=3.14
 conda activate PhaseT3M
 ```
 
