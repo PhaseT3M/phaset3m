@@ -191,7 +191,7 @@ tmp/
 *.dm4
 *.tiff
 *.tif
-*.jpg
+#*.jpg
 *.avi
 *.mp4
 *.emd
