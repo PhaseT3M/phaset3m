@@ -1,7 +1,7 @@
 # PhaseT3M
 
 **PhaseT3M** is a Python-based reconstruction package for **High-Resolution Transmission Electron Microscopy (HRTEM)** data. It enables robust 3D imaging via nonlinear phase retrieval and is particularly suited for cryo-ET datasets involving focal series and tilt series.
-
+# <img src="images/phaset3m_logo.jpg" width="40"> PhaseT3M
 ---
 
 ## ✨ Features
