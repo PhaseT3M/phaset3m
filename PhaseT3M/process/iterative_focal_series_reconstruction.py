@@ -1,5 +1,6 @@
 # Juhyeok Lee, LBNL, 2023.
 # This code is based on py4dstem (especially referring to multislice ptychography part)
+# 03.27.2025, major update (by Juhyeok Lee): reconstruction update
 
 import warnings, time
 from typing import Mapping, Sequence, Tuple, Union
@@ -7,8 +8,6 @@ from typing import Mapping, Sequence, Tuple, Union
 import matplotlib.pyplot as plt
 import numpy as np
 from matplotlib.gridspec import GridSpec
-from mpl_toolkits.axes_grid1 import ImageGrid, make_axes_locatable
-from scipy.ndimage import rotate as rotate_np
 from PhaseT3M.process.tqdmnd import tqdmnd
 
 try:
@@ -24,10 +23,8 @@ from PhaseT3M.process.visualize_tools import Visualize_tools
 from PhaseT3M.process.rotation import Image3DRotation
 
 from PhaseT3M.process.utils import (electron_wavelength_angstrom,
-                                    spatial_frequencies,
                                     aberrations_basis_function,
-                                    gradient_strengh_correction,
-                                    fit_aberration_surface)
+                                    )
 
 
 
@@ -187,20 +184,19 @@ class FocalSeriesReconstruction(
                             / xp.sqrt(xp.sum(xp.abs(self._incident_wave)**2, axis = (1,2))).reshape(-1,1,1) \
                             * xp.sqrt(self._incident_wave.shape[1]*self._incident_wave.shape[2])
 
-        self._incident_wave_initial = self._incident_wave.copy()
-
         # predicted wave
         self._predicted_exit_waves = xp.ones([1, self._object_shape[0],self._object_shape[1]], dtype=xp.complex64)
 
         if self._object_padding_px != [0, 0]:
             # padded initial incident wave
-            self._incident_wave = xp.ones([1,self._padded_px[0],self._padded_px[1]], dtype=xp.complex64)
-
-            self._incident_wave_initial = self._incident_wave.copy()
+            self._incident_wave = xp.pad(self._incident_wave,
+                                    ((0, 0), (self._object_padding_px[0], self._object_padding_px[0]),(self._object_padding_px[1], self._object_padding_px[1]),),
+                                    mode="constant", constant_values=1).astype(xp.complex64)
 
             # padded predicted wave
             self._predicted_exit_waves = xp.ones([1,self._padded_px[0],self._padded_px[1]], dtype=xp.complex64)
-
+        
+        self._incident_wave_initial = self._incident_wave.copy()
         self._cropping_px = (self._object_padding_px[0],self._object_padding_px[0]+self._object_shape[0],self._object_padding_px[1],self._object_padding_px[1]+self._object_shape[1])
         
 
@@ -291,11 +287,7 @@ class FocalSeriesReconstruction(
     def reconstruct(
         self,
         num_iter: int = 20,
-        reconstruction_method: str = "gradient-descent",
-        reconstruction_parameter: float = 1.0,
-        reconstruction_parameter_a: float = None,
-        reconstruction_parameter_b: float = None,
-        reconstruction_parameter_c: float = None,
+        # reconstruction_method: str = "gradient-descent",
         seed_random: int = None,
         step_size: float = 0.01,
         normalization_min: float = 1,
@@ -314,9 +306,9 @@ class FocalSeriesReconstruction(
         object_imag_positivity: bool = False,
         object_threshold_iter: int = np.inf,
         object_threshold_val: float = 0.0,
-        denoise_tv_chambolle_iter: int = 0,
-        denoise_tv_weight: float = 0.1,
-        denoise_tv_axis: int = None,
+        # denoise_tv_chambolle_iter: int = 0,
+        # denoise_tv_weight: float = 0.1,
+        # denoise_tv_axis: int = None,
         store_iterations: bool = False,
         progress_bar: bool = True,
         reset: bool = None,
@@ -327,26 +319,14 @@ class FocalSeriesReconstruction(
 
         Parameters
         --------
-        max_iter: int, optional
+        num_iter: int, optional
             Maximum number of iterations to run
-        reconstruction_method: str, optional
-            Specifies which reconstruction algorithm to use, one of:
-            "generalized-projections",
-            "DM_AP" (or "difference-map_alternating-projections"),
-            "RAAR" (or "relaxed-averaged-alternating-reflections"),
-            "RRR" (or "relax-reflect-reflect"),
-            "SUPERFLIP" (or "charge-flipping"), or
-            "GD" (or "gradient_descent")
-        reconstruction_parameter: float, optional
-            Reconstruction parameter for various reconstruction methods above.
-        reconstruction_parameter_a: float, optional
-            Reconstruction parameter a for reconstruction_method='generalized-projections'.
-        reconstruction_parameter_b: float, optional
-            Reconstruction parameter b for reconstruction_method='generalized-projections'.
-        reconstruction_parameter_c: float, optional
-            Reconstruction parameter c for reconstruction_method='generalized-projections'.
+        # reconstruction_method: str, optional
+        #     Specifies which reconstruction algorithm to use, one of:
+        #     "GD" (or "gradient_descent")
+        #     ...further development later.. 
         seed_random: int, optional
-            Seeds the random number generator, only applicable when max_batch_size is not None
+            Seeds the random number generator.
         step_size: float, optional
             Update step size of 3D object
         normalization_min: float, optional
@@ -396,25 +376,18 @@ class FocalSeriesReconstruction(
 
         Returns
         --------
-        self: TomographicReconstruction
+        self: FocalSeriesReconstruction
             Self to accommodate chaining
         """
         asnumpy = self._asnumpy
         xp = self._xp
 
-        if (reconstruction_method == "GD" or reconstruction_method == "gradient-descent"):
-            use_projection_scheme = False
-            projection_a = None
-            projection_b = None
-            projection_c = None
-            reconstruction_parameter = None
-
         # initialization
         if store_iterations and (not hasattr(self, "object_iterations") or reset):
             self.object_iterations = []
             self.incident_wave_iterations = []
-            self.predicted_exist_wave_iterations = []
-            self.predicted_wave_iterations = []
+            self.chi_function_iterations = []
+            self.predicted_exit_wave_iterations = []
 
         if reset:
             self._object = self._object_initial.copy()
@@ -432,10 +405,7 @@ class FocalSeriesReconstruction(
             self._chi_function_m = self._chi_function_m_initial.copy()
             self._chi_function_v = self._chi_function_v_initial.copy()
 
-            if use_projection_scheme:
-                self._residual_waves = [None] * 1
-            else:
-                self._residual_waves = None
+            self._residual_waves = None
 
         elif reset is None:
             if hasattr(self, "error"):
@@ -448,10 +418,7 @@ class FocalSeriesReconstruction(
                 )
             else:
                 self.error_iterations = []
-                if use_projection_scheme:
-                    self._residual_waves = [None] * 1
-                else:
-                    self._residual_waves = None
+                self._residual_waves = None
 
         np.random.seed(seed_random)
         
@@ -471,9 +438,7 @@ class FocalSeriesReconstruction(
             object_sliced = self._project_sliced_object(
                 self._object, self._num_slices
             )
-
-            if not use_projection_scheme:
-                object_sliced_old = object_sliced.copy()
+            object_sliced_old = object_sliced.copy()
 
             # pad
             object_sliced = xp.pad(object_sliced, ((0,0) \
@@ -489,36 +454,31 @@ class FocalSeriesReconstruction(
             (
                 propagated_waves,
                 complex_object,
-                predicted_exit_waves,
+                predicted_detector_waves,
                 self._residual_waves,
                 error,
             ) = self._forward(
                 object_sliced,
                 self._incident_wave[self._active_tilt_index],
                 self._amplitudes[self._active_tilt_index],
-                self._residual_waves,
-                use_projection_scheme,
-                projection_a,
-                projection_b,
-                projection_c,
             )
-            self.predicted_exit_waves = predicted_exit_waves
-            self.exit_waves = self._predicted_exit_waves[self._active_tilt_index]
+
+            # self.predicted_exit_waves = predicted_exit_waves
+            # self.exit_waves = self._predicted_exit_waves[self._active_tilt_index]
 
             # adjoint operator
             object_sliced, self._incident_wave[self._active_tilt_index] = self._adjoint(
-                object_sliced,
-                self._incident_wave[self._active_tilt_index],
-                complex_object,
-                propagated_waves,
-                self._residual_waves,
+                current_object=object_sliced,
+                current_incident_wave=self._incident_wave[self._active_tilt_index],
+                complex_object=complex_object,
+                propagated_waves=propagated_waves,
+                residual_waves=self._residual_waves,
+                predicted_detector_waves=predicted_detector_waves,
                 fix_chi_func= a0 < fix_chi_func_iter,
                 fix_aberrations_coefs= a0 < fix_aberrations_coefs_iter,
                 aberrations_coefs=self._aberrations_coefs[self._active_tilt_index],
                 fix_image_shift_coefs= a0 < fix_image_shift_iter,
                 image_shift_coefs=self._image_shift_coefs[self._active_tilt_index],
-                predicted_exit_waves=predicted_exit_waves,
-                use_projection_scheme=use_projection_scheme,
                 step_size=step_size,
                 chi_func_step_size=chi_func_step_size,
                 aberrations_step_size=aberrations_step_size,
@@ -529,10 +489,7 @@ class FocalSeriesReconstruction(
 
             # crop
             object_sliced = object_sliced[:,self._cropping_px[0]:self._cropping_px[1],self._cropping_px[2]:self._cropping_px[3]]
-
-            if not use_projection_scheme:
-                object_sliced -= object_sliced_old
-
+            object_sliced -= object_sliced_old
 
             object_update = self._expand_sliced_object(
                 object_sliced, self._num_voxels
@@ -570,13 +527,14 @@ class FocalSeriesReconstruction(
             if store_iterations:
                 self.object_iterations.append(asnumpy(self._object.copy()))
                 self.incident_wave_iterations.append(asnumpy(self._incident_wave[:,self._cropping_px[0]:self._cropping_px[1],self._cropping_px[2]:self._cropping_px[3]].copy()))
-                self.predicted_exist_wave_iterations.append(asnumpy(self._predicted_exit_waves[:,self._cropping_px[0]:self._cropping_px[1],self._cropping_px[2]:self._cropping_px[3]].copy()))
-                self.predicted_wave_iterations.append(asnumpy(self.predicted_exit_waves[:,self._cropping_px[0]:self._cropping_px[1],self._cropping_px[2]:self._cropping_px[3]].copy()))
+                self.chi_function_iterations.append(asnumpy(self._chi_function.copy()))
+                self.predicted_exit_wave_iterations.append(asnumpy(self._predicted_exit_waves.copy()))
 
         # store result
         self.object = asnumpy(self._object)
-        self.incident_wave = asnumpy(self._incident_wave[:,self._cropping_px[0]:self._cropping_px[1],self._cropping_px[2]:self._cropping_px[3]])
-        self.predicted_exist_wave = asnumpy(self._predicted_exit_waves[:,self._cropping_px[0]:self._cropping_px[1],self._cropping_px[2]:self._cropping_px[3]])
+        self.incident_wave = asnumpy(self._incident_wave)
+        self.chi_function = asnumpy(self._chi_function)
+        self.predicted_exit_waves = asnumpy(self._predicted_exit_waves)
         self.error = error.item()
 
         if self._device == "gpu":
@@ -586,16 +544,15 @@ class FocalSeriesReconstruction(
         return self
 
 
+
     def visualize(
         self,
         fig=None,
         iterations_grid: Tuple[int, int] = None,
         plot_convergence: bool = True,
-        plot_exit_wave_amplitude: bool = True,
-        plot_nth_exit_wave_amplitude: int = 0,
-        plot_incident_wave: bool = True,
-        plot_fourier_incident_wave: bool = False,
-        plot_nth_incident_wave: int = 0,
+        plot_phase_aberration_function: bool = True,
+        plot_abs_aberration_function: bool = False,
+        plot_nm_aberration_function: Tuple[int, int] = (0, 0),
         plot_imaginary_object: bool = False,
         cbar: bool = True,
         projection_angle_deg: float = None,
@@ -615,10 +572,10 @@ class FocalSeriesReconstruction(
             If true, the normalized mean squared error (NMSE) plot is displayed
         cbar: bool, optional
             If true, displays a colorbar
-        plot_incident_wave: bool
-            If true, the reconstructed incident wave intensity is also displayed
-        plot_fourier_incident_wave: bool, optional
-            If true, the reconstructed complex Fourier incident wave is displayed
+        plot_phase_aberration_function: bool
+            If true, the phase aberration_function is also displayed
+        plot_abs_aberration_function: bool, optional
+            If true, the abs aberration_function is displayed
         iterations_grid: Tuple[int,int]
             Grid dimensions to plot reconstruction iterations
         projection_angle_deg: float
@@ -640,9 +597,9 @@ class FocalSeriesReconstruction(
             self._visualize_last_iteration(
                 fig=fig,
                 plot_convergence=plot_convergence,
-                plot_incident_wave=plot_incident_wave,
-                plot_fourier_incident_wave=plot_fourier_incident_wave,
-                plot_nth_incident_wave=plot_nth_incident_wave,
+                plot_phase_aberration_function=plot_phase_aberration_function,
+                plot_abs_aberration_function=plot_abs_aberration_function,
+                plot_nm_aberration_function=plot_nm_aberration_function,
                 plot_imaginary_object=plot_imaginary_object,
                 cbar=cbar,
                 projection_angle_deg=projection_angle_deg,
@@ -656,9 +613,9 @@ class FocalSeriesReconstruction(
                 fig=fig,
                 plot_convergence=plot_convergence,
                 iterations_grid=iterations_grid,
-                plot_incident_wave=plot_incident_wave,
-                plot_fourier_incident_wave=plot_fourier_incident_wave,
-                plot_nth_incident_wave=plot_nth_incident_wave,
+                plot_phase_aberration_function=plot_phase_aberration_function,
+                plot_abs_aberration_function=plot_abs_aberration_function,
+                plot_nm_aberration_function=plot_nm_aberration_function,
                 plot_imaginary_object=plot_imaginary_object,
                 cbar=cbar,
                 projection_angle_deg=projection_angle_deg,
@@ -782,8 +739,3 @@ class FocalSeriesReconstruction(
             power=power,
             **kwargs,
         )
-
-
-
-
-

@@ -1,5 +1,6 @@
 # Juhyeok Lee, LBNL, 2023.
 # This code is based on py4dstem (especially referring to overlap tomography part)
+# 03.27.2025, major update (by Juhyeok Lee): reconstruction update
 
 import warnings
 from typing import Mapping, Sequence, Tuple
@@ -22,9 +23,8 @@ from PhaseT3M.process.visualize_tools import Visualize_tools
 from PhaseT3M.process.rotation import Image3DRotation
 
 from PhaseT3M.process.utils import (electron_wavelength_angstrom,
-                                    spatial_frequencies,
                                     aberrations_basis_function,
-                                    fit_aberration_surface)
+                                    )
 
 
 
@@ -325,7 +325,7 @@ class TomographicReconstruction(
 
         Parameters
         --------
-        max_iter: int, optional
+        num_iter: int, optional
             Maximum number of iterations to run
         # reconstruction_method: str, optional
         #     Specifies which reconstruction algorithm to use, one of:
@@ -405,7 +405,8 @@ class TomographicReconstruction(
         if store_iterations and (not hasattr(self, "object_iterations") or reset):
             self.object_iterations = []
             self.incident_wave_iterations = []
-            self.predicted_exist_wave_iterations = []
+            self.chi_function_iterations = []
+            self.predicted_exit_wave_iterations = []
 
         if reset:
             self._object = self._object_initial.copy()
@@ -499,13 +500,12 @@ class TomographicReconstruction(
                     self._incident_wave[tilt_index],
                     self._amplitudes[tilt_index],
                 )
-                # print(predicted_detector_waves.shape)
+
                 # self.predicted_detector_waves = predicted_detector_waves
-                # self.exit_waves = self._predicted_exit_waves[self._active_tilt_index]
                 
                 # adjoint operator
                 object_sliced, self._incident_wave[tilt_index] = self._adjoint(
-                    current_object = object_sliced,
+                    current_object=object_sliced,
                     current_incident_wave=self._incident_wave[tilt_index],
                     complex_object=complex_object,
                     propagated_waves=propagated_waves,
@@ -526,7 +526,6 @@ class TomographicReconstruction(
                 
                 # crop
                 object_sliced = object_sliced[:,self._cropping_px[0]:self._cropping_px[1],self._cropping_px[2]:self._cropping_px[3]]
-                
                 object_sliced -= object_sliced_old
 
                 object_update = self._expand_sliced_object(
@@ -624,13 +623,15 @@ class TomographicReconstruction(
 
             if store_iterations:
                 self.object_iterations.append(asnumpy(self._object.copy()))
-                self.incident_wave_iterations.append(asnumpy(self._incident_wave[:,self._cropping_px[0]:self._cropping_px[1],self._cropping_px[2]:self._cropping_px[3]].copy()))
-                self.predicted_exist_wave_iterations.append(asnumpy(self._predicted_exit_waves[:,self._cropping_px[0]:self._cropping_px[1],self._cropping_px[2]:self._cropping_px[3]].copy()))
+                self.incident_wave_iterations.append(asnumpy(self._incident_wave.copy()))
+                self.chi_function_iterations.append(asnumpy(self._chi_function.copy()))
+                self.predicted_exit_wave_iterations.append(asnumpy(self._predicted_exit_waves.copy()))
 
         # store result
         self.object = asnumpy(self._object)
-        self.incident_wave = asnumpy(self._incident_wave[:,self._cropping_px[0]:self._cropping_px[1],self._cropping_px[2]:self._cropping_px[3]])
-        self.predicted_exist_wave = asnumpy(self._predicted_exit_waves[:,self._cropping_px[0]:self._cropping_px[1],self._cropping_px[2]:self._cropping_px[3]])
+        self.incident_wave = asnumpy(self._incident_wave)
+        self.chi_function = asnumpy(self._chi_function)
+        self.predicted_exit_waves = asnumpy(self._predicted_exit_waves)
         self.error = error.item()
 
         if self._device == "gpu":
@@ -645,11 +646,9 @@ class TomographicReconstruction(
         fig=None,
         iterations_grid: Tuple[int, int] = None,
         plot_convergence: bool = True,
-        plot_exit_wave_amplitude: bool = True,
-        plot_nth_exit_wave_amplitude: int = 0,
-        plot_incident_wave: bool = True,
-        plot_fourier_incident_wave: bool = False,
-        plot_nth_incident_wave: int = 0,
+        plot_phase_aberration_function: bool = True,
+        plot_abs_aberration_function: bool = False,
+        plot_nm_aberration_function: Tuple[int, int] = (0, 0),
         plot_imaginary_object: bool = False,
         cbar: bool = True,
         projection_angle_deg: float = None,
@@ -669,10 +668,10 @@ class TomographicReconstruction(
             If true, the normalized mean squared error (NMSE) plot is displayed
         cbar: bool, optional
             If true, displays a colorbar
-        plot_incident_wave: bool
-            If true, the reconstructed incident wave intensity is also displayed
-        plot_fourier_incident_wave: bool, optional
-            If true, the reconstructed complex Fourier incident wave is displayed
+        plot_phase_aberration_function: bool
+            If true, the phase aberration_function is also displayed
+        plot_abs_aberration_function: bool, optional
+            If true, the abs aberration_function is displayed
         iterations_grid: Tuple[int,int]
             Grid dimensions to plot reconstruction iterations
         projection_angle_deg: float
@@ -694,9 +693,9 @@ class TomographicReconstruction(
             self._visualize_last_iteration(
                 fig=fig,
                 plot_convergence=plot_convergence,
-                plot_incident_wave=plot_incident_wave,
-                plot_fourier_incident_wave=plot_fourier_incident_wave,
-                plot_nth_incident_wave=plot_nth_incident_wave,
+                plot_phase_aberration_function=plot_phase_aberration_function,
+                plot_abs_aberration_function=plot_abs_aberration_function,
+                plot_nm_aberration_function=plot_nm_aberration_function,
                 plot_imaginary_object=plot_imaginary_object,
                 cbar=cbar,
                 projection_angle_deg=projection_angle_deg,
@@ -710,9 +709,9 @@ class TomographicReconstruction(
                 fig=fig,
                 plot_convergence=plot_convergence,
                 iterations_grid=iterations_grid,
-                plot_incident_wave=plot_incident_wave,
-                plot_fourier_incident_wave=plot_fourier_incident_wave,
-                plot_nth_incident_wave=plot_nth_incident_wave,
+                plot_phase_aberration_function=plot_phase_aberration_function,
+                plot_abs_aberration_function=plot_abs_aberration_function,
+                plot_nm_aberration_function=plot_nm_aberration_function,
                 plot_imaginary_object=plot_imaginary_object,
                 cbar=cbar,
                 projection_angle_deg=projection_angle_deg,

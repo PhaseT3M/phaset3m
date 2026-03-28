@@ -69,7 +69,7 @@ class Image3DRotation:
     """
     A rotation class to compute 3D rotation using FFT shearing method or real space interpolation(cubic).
     """
-    def __init__(self, shape, rot_method = "interp", object_type = "potential", xp = np, MEMORY_MAX_DIM= 600*600*600):
+    def __init__(self, shape, rot_method = "interpolation", object_type = "potential", xp = np, MEMORY_MAX_DIM= 600*600*600):
         self._rot_method = rot_method
         self._xp = xp
         self._object_type = object_type
