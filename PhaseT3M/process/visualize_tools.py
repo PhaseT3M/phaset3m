@@ -140,10 +140,10 @@ class Visualize_tools:
             ]
         elif plot_phase_aberration_function:
             aberration_function_extent = [
-                0,
-                self.sampling[1] * aberration_function_shape[1],
-                self.sampling[0] * aberration_function_shape[0],
-                0,
+                -1/self.sampling[1] / 2,
+                1/self.sampling[1] / 2,
+                1/self.sampling[0] / 2,
+                -1/self.sampling[0] / 2,
             ]
 
 
