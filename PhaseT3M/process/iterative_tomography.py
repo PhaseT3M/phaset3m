@@ -469,7 +469,7 @@ class TomographicReconstruction(
                 # 3D rotation
                 self._rot_object = self._object.copy() # rotated object
                 rot_matrix = self._tilt_orientation_matrices[self._active_tilt_index]
-                if np.sum(np.abs(rot_matrix-np.eye(3))) > 0.001:
+                if np.sum(np.abs(rot_matrix-np.eye(3))) > 0.001: # Rotations smaller than ~0.05 deg. are ignored.
                     self._rot_object = self._rotate3d.rotate_3d(self._rot_object, rot_matrix)
 
                 object_sliced = self._project_sliced_object(
@@ -532,7 +532,7 @@ class TomographicReconstruction(
                 )
                 
                 # 3D rotation back
-                if np.sum(np.abs(rot_matrix-np.eye(3))) > 0.001:
+                if np.sum(np.abs(rot_matrix-np.eye(3))) > 0.001: # Rotations smaller than ~0.05 deg. are ignored.
                     object_update = self._rotate3d.rotate_3d(object_update, rot_matrix.T)
 
                 # object_update
