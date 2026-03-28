@@ -196,7 +196,7 @@ class Reconstruction_methods():
             
     def _projection(self, current_object, current_incident_wave):
         """
-        HRTEM focal series projection method.
+        Ptychographic overlap projection method.
 
         Parameters
         --------
@@ -238,7 +238,7 @@ class Reconstruction_methods():
         return propagated_waves, complex_object, predicted_exit_waves
     
 
-    def _gradient_descent_real_projection(self, amplitudes, predicted_detector_waves):
+    def _gradient_descent_real_projection(self, amplitudes, predicted_exit_waves):
         """
         Real projection method for GD method.
 
@@ -246,13 +246,13 @@ class Reconstruction_methods():
         --------
         amplitudes: np.ndarray
             Normalized measured amplitudes
-        predicted_detector_waves: np.ndarray
-            Predicted detector waves after N propagations and N transmissions
+        predicted_exit_waves: np.ndarray
+            Predicted exit waves after N propagations and N transmissions
 
         Returns
         --------
         residual_waves: np.ndarray
-            Updated detector wave difference
+            Updated exit wave difference
         error: float
             Reconstruction error
         """
@@ -260,7 +260,7 @@ class Reconstruction_methods():
         xp = self._xp
 
         # Crop
-        residual_waves = predicted_detector_waves[:,self._cropping_px[0]:self._cropping_px[1],self._cropping_px[2]:self._cropping_px[3]]
+        residual_waves = predicted_exit_waves[:,self._cropping_px[0]:self._cropping_px[1],self._cropping_px[2]:self._cropping_px[3]]
         
         error = xp.sum(xp.abs(amplitudes - xp.abs(residual_waves)) ** 2)
 
@@ -276,15 +276,98 @@ class Reconstruction_methods():
         return residual_waves, error
     
 
+    def _projection_sets_real_projection(
+        self,
+        amplitudes,
+        predicted_exit_waves,
+        residual_waves,
+        projection_a,
+        projection_b,
+        projection_c,
+    ):
+        """
+        Real projection method for DM_AP and RAAR methods.
+        Generalized projection using three parameters: a,b,c
+
+            DM_AP(\\alpha)   :   a =  -\\alpha, b = 1, c = 1 + \\alpha
+              DM: DM_AP(1.0), AP: DM_AP(0.0)
+
+            RAAR(\\beta)     :   a = 1-2\\beta, b = \beta, c = 2
+              DM : RAAR(1.0)
+
+            RRR(\\gamma)     :   a = -\\gamma, b = \\gamma, c = 2
+              DM: RRR(1.0)
+
+            SUPERFLIP       :   a = 0, b = 1, c = 2
+
+        Parameters
+        --------
+        amplitudes: np.ndarray
+            Normalized measured amplitudes
+        transmitted_waves: np.ndarray
+            Transmitted waves after N-1 propagations and N transmissions
+        predicted_exit_waves: np.ndarray
+            previously estimated exit waves
+        projection_a: float
+        projection_b: float
+        projection_c: float
+
+        Returns
+        --------
+        residual_waves: np.ndarray
+            Updated exit wave difference
+        error: float
+            Reconstruction error
+        """
+
+        xp = self._xp
+        projection_x = 1 - projection_a - projection_b
+        projection_y = 1 - projection_c
+
+        # Crop
+        predicted_exit_waves = predicted_exit_waves[:,self._cropping_px[0]:self._cropping_px[1],self._cropping_px[2]:self._cropping_px[3]]
+        
+        if residual_waves is None:
+            residual_waves = predicted_exit_waves.copy()
+        
+        error = xp.sum(xp.abs(amplitudes - xp.abs(predicted_exit_waves)) ** 2)
+        # error = xp.sum((xp.abs(amplitudes - xp.abs(predicted_exit_waves)) ** 2)[:,15:amplitudes.shape[1]-15,15:amplitudes.shape[2]-15])
+
+        factor_to_be_projected = (
+            projection_c * predicted_exit_waves + projection_y * residual_waves
+        )
+        
+        real_projected_factor = amplitudes * xp.exp(
+            1j * xp.angle(factor_to_be_projected)
+        )
+        
+        residual_waves = (
+            projection_x * residual_waves
+            + projection_a * predicted_exit_waves
+            + projection_b * real_projected_factor
+        )
+
+        # Pad
+        residual_waves = xp.pad(residual_waves, ((0,0) \
+                                        ,(self._object_padding_px[0], self._object_padding_px[1]) \
+                                        ,(self._object_padding_px[0], self._object_padding_px[1])))
+
+        return residual_waves, error
+
     def _forward(
         self,
         current_object,
         current_incident_wave,
         amplitudes,
+        exit_waves,
+        use_projection_scheme,
+        projection_a,
+        projection_b,
+        projection_c,
     ):
         """
         Forward operator.
-        Calls _projection() and the _gradient_descent_real_projection().
+        Calls _projection() and the appropriate _fourier_projection().
 
         Parameters
         --------
@@ -294,6 +377,13 @@ class Reconstruction_methods():
             Current incident wave estimate
         amplitudes: np.ndarray
             Normalized measured amplitudes
+        exit_waves: np.ndarray
+            previously estimated exit waves
+        use_projection_scheme: bool,
+            If True, use generalized projection update
+        projection_a: float
+        projection_b: float
+        projection_c: float
 
         Returns
         --------
@@ -301,8 +391,8 @@ class Reconstruction_methods():
             waves[object^n]
         complex_object: np.ndarray
             complex object 
-        predicted_detector_waves: np.ndarray
-            detector wave after lens and sample
+        predicted_exit_waves: np.ndarray
+            exit wave right before sample
         residual_waves: np.ndarray
             Updated exit wave difference
         error: float
@@ -316,27 +406,41 @@ class Reconstruction_methods():
             complex_object,
             predicted_exit_waves,
         ) = self._projection(current_object, current_incident_wave)
-
+        
         self._predicted_exit_waves[self._active_tilt_index] = xp.squeeze(predicted_exit_waves).copy()
 
         # apply transfer function
         self.transfer_functions = (xp.exp( -1.0j * self._chi_function[self._active_tilt_index]
                     ).reshape(-1, self._padded_px[0], self._padded_px[1])*self._temperal_coherence_envelop_function).astype(xp.complex64)
 
-        predicted_detector_waves = self._propagate_array(
-                    predicted_exit_waves, self.transfer_functions
-                    )
+        predicted_exit_waves = self._propagate_array(
+                predicted_exit_waves, self.transfer_functions
+                )
+
         
-        # calculate error and residual wave
-        residual_waves, error = self._gradient_descent_real_projection(amplitudes, predicted_detector_waves)
+        if use_projection_scheme:
+            (
+                exit_waves[self._active_tilt_index],
+                error,
+            ) = self._projection_sets_real_projection(
+                amplitudes,
+                predicted_exit_waves,
+                exit_waves[self._active_tilt_index],
+                projection_a,
+                projection_b,
+                projection_c,
+            )
+        else:
+            residual_waves, error = self._gradient_descent_real_projection(
+                amplitudes, predicted_exit_waves
+            )
 
-        return propagated_waves, complex_object, predicted_detector_waves, residual_waves, error
-
+        return propagated_waves, complex_object, predicted_exit_waves, residual_waves, error
 
     def _imageshift_gradient_descent_adjoint(
         self,
         image_shift_coefs,
-        predicted_detector_waves,
+        predicted_exit_waves,
         residual_waves,
         aberrations_basis,
         step_size,
@@ -350,8 +454,8 @@ class Reconstruction_methods():
         --------
         image_shift_coefs: np.ndarray
             Current image shift coefficients
-        predicted_detector_waves: np.ndarray
-            predicted detector waves estimate
+        predicted_exit_waves: np.ndarray
+            predicted exit waves estimate
         residual_waves: np.ndarray
             Updated residual_waves difference
         aberrations_basis: np.ndarray
@@ -372,7 +476,7 @@ class Reconstruction_methods():
         eps = 1e-24
 
         # aberration coefs-update
-        predicted_detector_waves = xp.conj(xp.fft.fft2(predicted_detector_waves)) 
+        predicted_exit_waves = xp.conj(xp.fft.fft2(predicted_exit_waves)) 
         # exit_normalization = xp.abs(predicted_exit_waves) ** 2 
         # exit_normalization = 1 / xp.sqrt(
         #     1e-16
@@ -380,7 +484,7 @@ class Reconstruction_methods():
         #     + (normalization_min * xp.max(exit_normalization)) ** 2
         # )
 
-        tmp_residual = (predicted_detector_waves*xp.fft.fft2(residual_waves)).reshape(-1, self._padded_px[0]*self._padded_px[1])
+        tmp_residual = (predicted_exit_waves*xp.fft.fft2(residual_waves)).reshape(-1, self._padded_px[0]*self._padded_px[1])
         aberrations_grad = xp.real(2j*xp.matmul(tmp_residual, aberrations_basis)) 
 
         # adam
@@ -396,7 +500,7 @@ class Reconstruction_methods():
     def _aberrations_gradient_descent_adjoint(
         self,
         aberrations_coefs,
-        predicted_detector_waves,
+        predicted_exit_waves,
         residual_waves,
         aberrations_basis,
         step_size,
@@ -410,8 +514,8 @@ class Reconstruction_methods():
         --------
         aberrations_coefs: np.ndarray
             Current aberrations coefficients
-        predicted_detector_waves: np.ndarray
-            predicted detector waves estimate
+        predicted_exit_waves: np.ndarray
+            predicted exit waves estimate
         residual_waves: np.ndarray
             Updated residual_waves difference
         aberrations_basis: np.ndarray
@@ -432,7 +536,7 @@ class Reconstruction_methods():
         eps = 1e-24
 
         # aberration coefs-update
-        predicted_detector_waves = xp.conj(xp.fft.fft2(predicted_detector_waves)) 
+        predicted_exit_waves = xp.conj(xp.fft.fft2(predicted_exit_waves)) 
         # exit_normalization = xp.abs(predicted_exit_waves) ** 2 
         # exit_normalization = 1 / xp.sqrt(
         #     1e-16
@@ -440,7 +544,7 @@ class Reconstruction_methods():
         #     + (normalization_min * xp.max(exit_normalization)) ** 2
         # )
 
-        tmp_residual = (predicted_detector_waves*xp.fft.fft2(residual_waves)).reshape(-1, self._padded_px[0]*self._padded_px[1])
+        tmp_residual = (predicted_exit_waves*xp.fft.fft2(residual_waves)).reshape(-1, self._padded_px[0]*self._padded_px[1])
         aberrations_grad = xp.real(2j*xp.matmul(tmp_residual, aberrations_basis)) 
 
         # adam
@@ -456,7 +560,7 @@ class Reconstruction_methods():
     # def _aberrations_gradient_descent_adjoint(
     #     self,
     #     aberrations_coefs,
-    #     predicted_detector_waves,
+    #     predicted_exit_waves,
     #     residual_waves,
     #     aberrations_basis,
     #     step_size,
@@ -470,75 +574,8 @@ class Reconstruction_methods():
     #     --------
     #     aberrations_coefs: np.ndarray
     #         Current aberrations coefficients
-    #     predicted_detector_waves: np.ndarray
-    #         predicted detector waves estimate
-    #     residual_waves: np.ndarray
-    #         Updated residual_waves difference
-    #     aberrations_basis: np.ndarray
-    #         aberrations basis
-    #     step_size: float, optional
-    #         Update step size
-    #     normalization_min: float, optional
-    #         Probe normalization minimum as a fraction of the maximum overlap intensity
-
-    #     Returns
-    #     --------
-    #     aberrations_coefs: np.ndarray
-    #         Updated aberrations coefficients
-    #     """
-
-    #     xp = self._xp
-    #     beta = [0.9, 0.999]
-    #     eps = 1e-18
-        
-    #     # analycal solution for step size
-    #     # gg = xp.real(1j*(xp.fft.fft2(predicted_detector_waves)*xp.fft.fft2(xp.conj(predicted_detector_waves/xp.abs(predicted_detector_waves))))[:,:,:,None]
-    #     #             *(aberrations_basis.reshape(1,self._padded_px[0],self._padded_px[1],-1))
-    #     #             ).reshape(predicted_detector_waves.shape[0], self._padded_px[0]*self._padded_px[1],aberrations_basis.shape[-1])     
-    #     rr = (self._amplitudes[self._active_tilt_index] - xp.abs(predicted_detector_waves)).reshape(-1, self._padded_px[0]*self._padded_px[1])
-
-    #     # aberration coefs-update
-    #     predicted_detector_waves = xp.conj(xp.fft.fft2(predicted_detector_waves)) 
-
-    #     tmp_residual = (predicted_detector_waves*xp.fft.fft2(residual_waves)).reshape(-1, self._padded_px[0]*self._padded_px[1])
-    #     aberrations_grad = xp.real(2j*xp.matmul(tmp_residual, aberrations_basis)) 
-    #     # print(aberrations_basis.shape)
-
-    #     gg = (1j*xp.fft.ifft2(xp.conj(predicted_detector_waves)[:,:,:,None]
-    #                 *(aberrations_basis.reshape(1,self._padded_px[0],self._padded_px[1],-1)),
-    #                 axes=(1, 2))*
-    #                 (xp.fft.ifft2(xp.conj(predicted_detector_waves))/xp.abs(xp.fft.ifft2(xp.conj(predicted_detector_waves))))[:,:,:,None]                                 
-    #                 ).reshape(predicted_detector_waves.shape[0], self._padded_px[0]*self._padded_px[1],aberrations_basis.shape[-1])
-   
-    #     gg *= aberrations_grad[:,None,:]
-    #     gg = xp.real(gg)
-                
-    #     step_size = -xp.sum(rr[:,:,None]*gg, axis=(0, 1))/(xp.sum(gg * gg, axis=(0, 1))+eps)
-    #     # print(step_size, xp.sum(gg * gg, axis=(0, 1)), xp.sum(rr[:,:,None]*gg, axis=(0, 1)))
-
-    #     aberrations_coefs += step_size * aberrations_grad     
-    #     # print(step_size * aberrations_grad, (step_size * aberrations_grad).shape)
-    #     return aberrations_coefs
-
-    # def _aberrations_gradient_descent_adjoint(
-    #     self,
-    #     aberrations_coefs,
-    #     predicted_detector_waves,
-    #     residual_waves,
-    #     aberrations_basis,
-    #     step_size,
-    #     normalization_min,
-    # ):
-    #     """
-    #     Gradient for aberrations correction
-    #     Computes aberration coefs gradient and update.
-
-    #     Parameters
-    #     --------
-    #     aberrations_coefs: np.ndarray
-    #         Current aberrations coefficients
-    #     predicted_detector_waves: np.ndarray
-    #         predicted detector waves estimate
+    #     predicted_exit_waves: np.ndarray
+    #         predicted exit waves estimate
     #     residual_waves: np.ndarray
     #         Updated residual_waves difference
     #     aberrations_basis: np.ndarray
@@ -557,16 +594,16 @@ class Reconstruction_methods():
     #     xp = self._xp
 
     #     # aberration coefs-update
-    #     predicted_detector_waves = xp.conj(xp.fft.fft2(predicted_detector_waves)) 
-    #     exit_normalization = xp.abs(predicted_detector_waves) ** 2 
+    #     predicted_exit_waves = xp.conj(xp.fft.fft2(predicted_exit_waves)) 
+    #     exit_normalization = xp.abs(predicted_exit_waves) ** 2 
     #     exit_normalization = 1 / xp.sqrt(
     #         1e-16
     #         + ((1 - normalization_min) * exit_normalization) ** 2
     #         + (normalization_min * xp.max(exit_normalization)) ** 2
     #     )
         
-    #     tmp_residual = predicted_detector_waves*xp.fft.fft2(residual_waves)*exit_normalization
-    #     #tmp_residual = xp.fft.fft2(xp.conj(predicted_detector_waves))*xp.fft.fft2(residual_waves)*exit_normalization
+    #     tmp_residual = predicted_exit_waves*xp.fft.fft2(residual_waves)*exit_normalization
+    #     #tmp_residual = xp.fft.fft2(xp.conj(predicted_exit_waves))*xp.fft.fft2(residual_waves)*exit_normalization
     #     tmp_residual = tmp_residual.reshape(-1, self._padded_px[0]*self._padded_px[1])
 
     #     #aberrations_coefs += step_size * xp.real(2j*xp.matmul(tmp_residual, aberrations_basis))        
@@ -578,7 +615,7 @@ class Reconstruction_methods():
     def _chi_gradient_descent_adjoint(
         self,
         chi_function,
-        predicted_detector_waves,
+        predicted_exit_waves,
         residual_waves,
         step_size,
         normalization_min,
@@ -591,8 +628,8 @@ class Reconstruction_methods():
         --------
         chi_function: np.ndarray
             chi function
-        predicted_detector_waves: np.ndarray
-            predicted detector waves estimate
+        predicted_exit_waves: np.ndarray
+            predicted exit waves estimate
         residual_waves: np.ndarray
             Updated residual_waves difference
         step_size: float, optional
@@ -612,14 +649,14 @@ class Reconstruction_methods():
         normalization_min= 1
         
         # aberration coefs-update
-        predicted_detector_waves = xp.conj(xp.fft.fft2(predicted_detector_waves)) 
-        exit_normalization = xp.abs(predicted_detector_waves) ** 2 
+        predicted_exit_waves = xp.conj(xp.fft.fft2(predicted_exit_waves)) 
+        exit_normalization = xp.abs(predicted_exit_waves) ** 2 
         exit_normalization = 1 / xp.sqrt(
             1e-16
             + (normalization_min * xp.max(exit_normalization)) ** 2
         )
 
-        tmp_residual = predicted_detector_waves*xp.fft.fft2(residual_waves)*exit_normalization
+        tmp_residual = predicted_exit_waves*xp.fft.fft2(residual_waves)*exit_normalization
         chi_function_grad = xp.real(2j*tmp_residual)
 
         # adam
@@ -637,7 +674,7 @@ class Reconstruction_methods():
     # def _chi_gradient_descent_adjoint(
     #     self,
     #     chi_function,
-    #     predicted_detector_waves,
+    #     predicted_exit_waves,
     #     residual_waves,
     #     step_size,
     #     normalization_min,
@@ -650,8 +687,8 @@ class Reconstruction_methods():
     #     --------
     #     chi_function: np.ndarray
     #         chi function
-    #     predicted_detector_waves: np.ndarray
-    #         predicted detector waves estimate
+    #     predicted_exit_waves: np.ndarray
+    #         predicted exit waves estimate
     #     residual_waves: np.ndarray
     #         Updated residual_waves difference
     #     step_size: float, optional
@@ -668,16 +705,16 @@ class Reconstruction_methods():
     #     xp = self._xp
 
     #     # aberration coefs-update
-    #     predicted_detector_waves = xp.conj(xp.fft.fft2(predicted_detector_waves)) 
-    #     exit_normalization = xp.abs(predicted_detector_waves) ** 2 
+    #     predicted_exit_waves = xp.conj(xp.fft.fft2(predicted_exit_waves)) 
+    #     exit_normalization = xp.abs(predicted_exit_waves) ** 2 
     #     exit_normalization = 1 / xp.sqrt(
     #         1e-16
     #         + ((1 - normalization_min) * exit_normalization) ** 2
     #         + (normalization_min * xp.max(exit_normalization)) ** 2
     #     )
         
-    #     tmp_residual = predicted_detector_waves*xp.fft.fft2(residual_waves)*exit_normalization
-    #     #tmp_residual = xp.fft.fft2(xp.conj(predicted_detector_waves))*xp.fft.fft2(residual_waves)*exit_normalization
+    #     tmp_residual = predicted_exit_waves*xp.fft.fft2(residual_waves)*exit_normalization
+    #     #tmp_residual = xp.fft.fft2(xp.conj(predicted_exit_waves))*xp.fft.fft2(residual_waves)*exit_normalization
       
     #     chi_function += step_size * xp.real(2j*tmp_residual)
 
@@ -751,6 +788,9 @@ class Reconstruction_methods():
                     * incident_normalization
                 )
 
+                # current_object[s] += step_size * gradient_strengh_correction(xp.real(-1j * xp.conj(obj) * xp.conj(save_waves) * residual_waves),
+                #                                                                      self._pixel_sizes, energy=self._energy, xp=self._xp)
+
 
             # back-transmit
             residual_waves *= xp.conj(obj)
@@ -781,6 +821,110 @@ class Reconstruction_methods():
 
         return current_object, current_incident_wave
 
+    def _projection_sets_adjoint(
+        self,
+        current_object,
+        current_incident_wave,
+        complex_object,
+        propagated_waves,
+        residual_waves,
+        step_size,
+        normalization_min,
+        fix_incident_wave,
+    ):
+        """
+        Adjoint operator for GD method.
+        Computes object and incident wave update steps.
+
+        Parameters
+        --------
+        current_object: np.ndarray
+            Current object estimate
+        current_incident_wave: np.ndarray
+            Current incident wave estimate
+        complex_object: np.ndarray
+            Complex object view
+        propagated_waves: np.ndarray
+            Shifted waves at each layer
+        residual_waves: np.ndarray
+            Updated exit_waves difference
+        step_size: float, optional
+            Update step size
+        normalization_min: float, optional
+            Probe normalization minimum as a fraction of the maximum overlap intensity
+        fix_incident_wave: bool, optional
+            If True, incident wave will not be updated
+
+        Returns
+        --------
+        updated_object: np.ndarray
+            Updated object estimate
+        updated_incident_wave: np.ndarray 
+            Updated incident_wave estimate
+        """
+        xp = self._xp
+
+        normalization_factor = xp.abs(current_incident_wave) ** 2
+        normalization_factor = 1 / xp.sqrt(
+            1e-16
+            + ((1 - normalization_min) * normalization_factor) ** 2
+            + (normalization_min * xp.max(normalization_factor)) ** 2
+        )
+
+        # careful not to modify exit_waves in-place for projection set methods
+        residual_waves_copy = residual_waves.copy()
+        for s in reversed(range(self._num_slices)):
+            save_waves = propagated_waves[s]
+            obj = complex_object[s]          
+
+            # object-update
+            incident_normalization = xp.abs(save_waves) ** 2
+            incident_normalization = 1 / xp.sqrt(
+                1e-16
+                + ((1 - normalization_min) * incident_normalization) ** 2
+                + (normalization_min * xp.max(incident_normalization)) ** 2
+            )
+
+            if self._object_type == "complex":
+                current_object[s] += step_size * (
+                        (-1j * xp.conj(obj) * xp.conj(save_waves) * residual_waves_copy)
+                    * incident_normalization
+                )
+            else:
+                current_object[s] += step_size * (
+                        xp.real(-1j * xp.conj(obj) * xp.conj(save_waves) * residual_waves_copy)
+                    * incident_normalization
+                )
+
+            # back-transmit
+            residual_waves_copy *= xp.conj(obj)
+
+            if s > 0:
+                # back-propagate
+                residual_waves_copy = self._propagate_array(
+                        residual_waves_copy, xp.conj(self._propagator_arrays[s-1])
+                    )
+            elif not fix_incident_wave:
+                # incident wave update
+                object_normalization = xp.sum(
+                    (xp.abs(obj) ** 2),
+                    axis=0,
+                )
+                object_normalization = 1 / xp.sqrt(
+                    1e-16
+                    + ((1 - normalization_min) * object_normalization) ** 2
+                    + (normalization_min * xp.max(object_normalization)) ** 2
+                )                
+
+                current_incident_wave += (
+                step_size
+                * residual_waves_copy
+                * object_normalization
+                )       
+
+
+        return current_object, current_incident_wave
+
 
     def _adjoint(
         self,
@@ -789,12 +933,13 @@ class Reconstruction_methods():
         complex_object,
         propagated_waves,
         residual_waves,
-        predicted_detector_waves,
         fix_chi_func: bool,
         fix_aberrations_coefs: bool,
         aberrations_coefs,
         fix_image_shift_coefs: bool,
         image_shift_coefs,
+        predicted_exit_waves,
+        use_projection_scheme: bool,
         step_size: float,
         chi_func_step_size: float,
         aberrations_step_size: float,
@@ -818,12 +963,12 @@ class Reconstruction_methods():
             Transmitted probes at each layer
         residual_waves: np.ndarray
             Updated exit_waves difference
-        predicted_detector_waves: np.ndarray
-            predicted detector waves estimate
         fix_aberrations_coefs
             If True, don't use aberrations correction using gradient method
         aberrations_coefs: np.ndarray
             Current aberrations coefficients
+        predicted_exit_waves: np.ndarray
+            predicted exit waves estimate
         use_projection_scheme: bool,
             If True, use generalized projection update
         step_size: float, optional
@@ -847,7 +992,7 @@ class Reconstruction_methods():
             # chi function correction
             self._chi_function[self._active_tilt_index] = self._chi_gradient_descent_adjoint(
                 self._chi_function[self._active_tilt_index],
-                predicted_detector_waves,
+                predicted_exit_waves,
                 residual_waves,
                 chi_func_step_size,
                 normalization_min,
@@ -857,7 +1002,7 @@ class Reconstruction_methods():
             if not fix_image_shift_coefs:
                 image_shift_coefs= self._imageshift_gradient_descent_adjoint(
                     image_shift_coefs,
-                    predicted_detector_waves,
+                    predicted_exit_waves,
                     residual_waves,
                     self._image_shift_basis,
                     image_shift_step_size,
@@ -867,7 +1012,7 @@ class Reconstruction_methods():
             if not fix_aberrations_coefs:
                 aberrations_coefs = self._aberrations_gradient_descent_adjoint(
                     aberrations_coefs,
-                    predicted_detector_waves,
+                    predicted_exit_waves,
                     residual_waves,
                     self._aberrations_basis,
                     aberrations_step_size,
@@ -878,10 +1023,22 @@ class Reconstruction_methods():
         residual_waves = self._propagate_array(
                 residual_waves, xp.conj(self.transfer_functions)
                 )
+
         residual_waves = xp.mean(residual_waves, axis=0)
         
         # Backpropagation
-        current_object, current_incident_wave = self._gradient_descent_adjoint(
+        if use_projection_scheme:
+            current_object, current_incident_wave = self._projection_sets_adjoint(
+                current_object,
+                current_incident_wave,
+                complex_object,
+                propagated_waves,
+                residual_waves[self._active_tilt_index],
+                normalization_min,
+                fix_incident_wave,
+            )
+        else:
+            current_object, current_incident_wave = self._gradient_descent_adjoint(
                 current_object,
                 current_incident_wave,
                 complex_object,
@@ -890,7 +1047,7 @@ class Reconstruction_methods():
                 step_size,
                 normalization_min,
                 fix_incident_wave,
-                )             
+            )             
 
         return current_object, current_incident_wave
 

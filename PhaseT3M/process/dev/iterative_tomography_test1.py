@@ -19,9 +19,9 @@ import os
 
 from PhaseT3M.datastack.datastack import DataStack
 from PhaseT3M.process.iterative_contraints import Contraints
-from PhaseT3M.process.iterative_methods_test import Reconstruction_methods
+from PhaseT3M.process.dev.iterative_methods_test1 import Reconstruction_methods
 from PhaseT3M.process.visualize_tools import Visualize_tools
-from PhaseT3M.process.rotation import Image3DRotation, rotate_fourier_shear
+from PhaseT3M.process.rotation import Image3DRotation
 
 from PhaseT3M.process.utils import (electron_wavelength_angstrom,
                                     spatial_frequencies,
@@ -32,7 +32,7 @@ from PhaseT3M.process.utils import (electron_wavelength_angstrom,
 
 warnings.simplefilter(action="always", category=UserWarning)
 
-class TomographicReconstruction_Rtest(
+class TomographicReconstruction_test1(
     Contraints,
     Reconstruction_methods,
     Visualize_tools):
@@ -47,7 +47,6 @@ class TomographicReconstruction_Rtest(
         object_type: str = "potential",
         initial_object_guess: np.ndarray = None,
         incident_wave_guess: np.ndarray = None,
-        inplane_rotation_angles_guess: np.ndarray = None,
         object_padding_px: Tuple[int, int] = [0, 0],
         verbose: bool = True,
         device: str = "cpu",
@@ -103,7 +102,7 @@ class TomographicReconstruction_Rtest(
         self._num_slices = num_slices
         self._tilt_orientation_matrices = np.array(tilt_orientation_matrices)
         self._num_tilts = len(tilt_orientation_matrices)
-        self._inplane_rotation_angles = inplane_rotation_angles_guess
+
 
     def preprocess(
         self,
@@ -160,18 +159,6 @@ class TomographicReconstruction_Rtest(
 
         # Tilt orientation matrices initialization
         self._tilt_orientation_matrices_initial = self._tilt_orientation_matrices.copy()
-        self._tmp_gradient = xp.pad(self._project_sliced_object(xp.zeros_like(self._object), self._num_slices), ((0,0) \
-                                                        ,(self._object_padding_px[0],self._object_padding_px[1]) \
-                                                        ,(self._object_padding_px[0],self._object_padding_px[1])))
-        if self._object_type == 'complex':
-            self._tmp_gradient = xp.asarray(self._tmp_gradient, dtype=xp.complex64)
-        else:
-            self._tmp_gradient = xp.asarray(self._tmp_gradient, dtype=xp.float32)
-
-        # Inplane rotation initialization
-        if self._inplane_rotation_angles is None:
-            self._inplane_rotation_angles = xp.zeros(self._num_tilts)
-        self._inplane_rotation_angles_initial = self._inplane_rotation_angles.copy()
 
         # Precomputed propagator arrays
         self.sampling = self._pixel_sizes
@@ -284,7 +271,6 @@ class TomographicReconstruction_Rtest(
                                                 +xp.matmul(self._image_shift_coefs[tilt_index], self._image_shift_basis.T)
                                                 ).reshape(-1, self._padded_px[0], self._padded_px[1]).astype(xp.float32)
 
-        self._amplitudes_initial = self._amplitudes.copy()
         self._aberrations_coefs_initial = self._aberrations_coefs.copy()
         self._image_shift_coefs_initial = self._image_shift_coefs.copy()
         self._chi_function_initial = self._chi_function.copy()
@@ -317,10 +303,6 @@ class TomographicReconstruction_Rtest(
         fix_aberrations_coefs_iter: int = np.inf,
         aberrations_step_size: float = 0.00001,
         fix_incident_wave_iter: int = np.inf,
-        fix_inplane_rotation_iter: int = np.inf,
-        inplane_rotation_step_size: float = 0.0000001,
-        # fix_rotation_matrix_iter: int = np.inf,
-        # rotation_matrix_step_size: float = 0.0000001,
         butterworth_filter_iter: int = np.inf,
         q_lowpass: float = None,
         q_highpass: float = None,
@@ -458,9 +440,6 @@ class TomographicReconstruction_Rtest(
             self._chi_function = self._chi_function_initial.copy()
             self.error_iterations = []
 
-            self._inplane_rotation_angles = self._inplane_rotation_angles_initial.copy()
-            self._tilt_orientation_matrices = self._tilt_orientation_matrices_initial.copy()
-            self._amplitudes = self._amplitudes_initial.copy()
             # adam
             self._aberrations_coefs_m = self._aberrations_coefs_m_initial.copy()
             self._aberrations_coefs_v = self._aberrations_coefs_v_initial.copy()
@@ -517,15 +496,6 @@ class TomographicReconstruction_Rtest(
 
                 tilt_error = 0.0
 
-                # inplane rotation
-                for defocus_inx in range(self._amplitudes.shape[1]):
-                    if xp.abs(self._inplane_rotation_angles[tilt_index]) <= 1e-2:
-                        self._amplitudes[tilt_index, defocus_inx] = rotate_fourier_shear(self._amplitudes_initial[tilt_index, defocus_inx],
-                                                                                 self._inplane_rotation_angles[tilt_index],
-                                                                                 xp=xp, output_type=xp)
-                # if tilt_index == 0:
-                #     print(self._inplane_rotation_angles[tilt_index])
-                    
                 # 3D rotation
                 rot_matrix = self._tilt_orientation_matrices[self._active_tilt_index]
                 if np.sum(np.abs(rot_matrix-np.eye(3))) > 0.001 or self._num_tilts > 1:
@@ -588,10 +558,6 @@ class TomographicReconstruction_Rtest(
                     image_shift_step_size= image_shift_step_size,
                     normalization_min=normalization_min,
                     fix_incident_wave= a0 < fix_incident_wave_iter,
-                    fix_inplane_rotation = a0 < fix_inplane_rotation_iter,
-                    inplane_rotation_step_size = inplane_rotation_step_size,
-                    # fix_rotation_matrix = a0 < fix_rotation_matrix_iter,
-                    # rotation_matrix_step_size = rotation_matrix_step_size,
                 )
                 
                 # crop

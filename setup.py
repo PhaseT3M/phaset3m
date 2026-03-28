@@ -32,6 +32,8 @@ setup(
         "scikit-learn >= 1.8.0",
         "scikit-optimize >= 0.10.0",
         "tqdm >= 4.46.3",
+        "mrcfile >= 1.5.4",
+        "tifffile >= 1.3.0",
         # "dask >= 2.3.0",
         # "distributed >= 2.3.0",
         # "mpire >= 2.7.1",

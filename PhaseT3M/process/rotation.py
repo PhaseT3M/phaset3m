@@ -172,63 +172,126 @@ class Image3DRotation:
 
     def _shear_x_for_3D_rot(self, vol, a, b):
         xp = self._xp
+        vol = xp.ascontiguousarray(vol)
+
+        a = xp.float32(a)
+        b = xp.float32(b)
+        c1 = xp.float32(self._dim[1] / self._dim[0])
+        c2 = xp.float32(self._dim[2] / self._dim[0])
+        two_pi = xp.float32(2.0 * np.pi)
 
         for idx_start in range(0, self._dim[0], self._slice_per_tile):
             idx_end = min(self._dim[0], idx_start + self._slice_per_tile)
             idx_slice = slice(idx_start, idx_end)
 
-            if np.abs(b) > 1e-5:
-                vol[idx_slice,:,:] = xp.fft.fft(vol[idx_slice,:,:], axis=2)
-            if np.abs(a) > 1e-5:
-                vol[idx_slice,:,:] = xp.fft.fft(vol[idx_slice,:,:], axis=1)
-            if (np.abs(a) > 1e-5) or (np.abs(b) > 1e-5):
-                vol[idx_slice,:,:] *= xp.exp(1j * 2 * xp.pi * (self._dim[1] / self._dim[0] * a * self.ky + self._dim[2] / self._dim[0] * b * self.kz) * self.nx[idx_slice,:,:])
-            if np.abs(a) > 1e-5:
-                vol[idx_slice,:,:] = xp.fft.ifft(vol[idx_slice,:,:], axis=1)
-            if np.abs(b) > 1e-5:    
-                vol[idx_slice,:,:] = xp.fft.ifft(vol[idx_slice,:,:], axis=2)
-        
-        return vol
+            tile = xp.ascontiguousarray(vol[idx_slice, :, :].copy()).astype(xp.complex64, copy=False)
 
+            if abs(float(b)) > 1e-5:
+                tile = xp.fft.fft(tile, axis=2).astype(xp.complex64, copy=False)
+            if abs(float(a)) > 1e-5:
+                tile = xp.fft.fft(tile, axis=1).astype(xp.complex64, copy=False)
+
+            if (abs(float(a)) > 1e-5) or (abs(float(b)) > 1e-5):
+                arg = (
+                    two_pi * (
+                        c1 * a * self.ky +
+                        c2 * b * self.kz
+                    ) * self.nx[idx_slice, :, :]
+                ).astype(xp.float32, copy=False)
+
+                phase = xp.exp((xp.complex64(1j) * arg).astype(xp.complex64, copy=False))
+                tile = (tile * phase).astype(xp.complex64, copy=False)
+
+            if abs(float(a)) > 1e-5:
+                tile = xp.fft.ifft(tile, axis=1).astype(xp.complex64, copy=False)
+            if abs(float(b)) > 1e-5:
+                tile = xp.fft.ifft(tile, axis=2).astype(xp.complex64, copy=False)
+
+            vol[idx_slice, :, :] = tile
+
+        return xp.ascontiguousarray(vol)
+    
     def _shear_y_for_3D_rot(self, vol, a, b):
         xp = self._xp
+        vol = xp.ascontiguousarray(vol)
+
+        a = xp.float32(a)
+        b = xp.float32(b)
+        c1 = xp.float32(self._dim[2] / self._dim[1])
+        c2 = xp.float32(self._dim[0] / self._dim[1])
+        two_pi = xp.float32(2.0 * np.pi)
 
         for idx_start in range(0, self._dim[1], self._slice_per_tile):
             idx_end = min(self._dim[1], idx_start + self._slice_per_tile)
             idx_slice = slice(idx_start, idx_end)
 
-            if np.abs(a) > 1e-5:
-                vol[:,idx_slice,:] = xp.fft.fft(vol[:,idx_slice,:], axis=2)
-            if np.abs(b) > 1e-5:
-                vol[:,idx_slice,:] = xp.fft.fft(vol[:,idx_slice,:], axis=0)
-            if (np.abs(a) > 1e-5) or (np.abs(b) > 1e-5):
-                vol[:,idx_slice,:] *= xp.exp(1j * 2 * xp.pi * (self._dim[2] / self._dim[1] * a * self.kz + self._dim[0] / self._dim[1] * b * self.kx) * self.ny[:,idx_slice,:])
-            if np.abs(b) > 1e-5:
-                vol[:,idx_slice,:] = xp.fft.ifft(vol[:,idx_slice,:], axis=0)
-            if np.abs(a) > 1e-5:    
-                vol[:,idx_slice,:] = xp.fft.ifft(vol[:,idx_slice,:], axis=2)
-        
-        return vol
+            tile = xp.ascontiguousarray(vol[:, idx_slice, :].copy()).astype(xp.complex64, copy=False)
+
+            if abs(float(a)) > 1e-5:
+                tile = xp.fft.fft(tile, axis=2).astype(xp.complex64, copy=False)
+            if abs(float(b)) > 1e-5:
+                tile = xp.fft.fft(tile, axis=0).astype(xp.complex64, copy=False)
+
+            if (abs(float(a)) > 1e-5) or (abs(float(b)) > 1e-5):
+                arg = (
+                    two_pi * (
+                        c1 * a * self.kz +
+                        c2 * b * self.kx
+                    ) * self.ny[:, idx_slice, :]
+                ).astype(xp.float32, copy=False)
+
+                phase = xp.exp((xp.complex64(1j) * arg).astype(xp.complex64, copy=False))
+                tile = (tile * phase).astype(xp.complex64, copy=False)
+
+            if abs(float(b)) > 1e-5:
+                tile = xp.fft.ifft(tile, axis=0).astype(xp.complex64, copy=False)
+            if abs(float(a)) > 1e-5:
+                tile = xp.fft.ifft(tile, axis=2).astype(xp.complex64, copy=False)
+
+            vol[:, idx_slice, :] = tile
+
+        return xp.ascontiguousarray(vol)
 
     def _shear_z_for_3D_rot(self, vol, a, b):
         xp = self._xp
+        vol = xp.ascontiguousarray(vol)
+
+        a = xp.float32(a)
+        b = xp.float32(b)
+        c1 = xp.float32(self._dim[0] / self._dim[2])
+        c2 = xp.float32(self._dim[1] / self._dim[2])
+        two_pi = xp.float32(2.0 * np.pi)
 
         for idx_start in range(0, self._dim[2], self._slice_per_tile):
             idx_end = min(self._dim[2], idx_start + self._slice_per_tile)
             idx_slice = slice(idx_start, idx_end)
 
-            if np.abs(b) > 1e-5:
-                vol[:,:,idx_slice] = xp.fft.fft(vol[:,:,idx_slice], axis=1)
-            if np.abs(a) > 1e-5:
-                vol[:,:,idx_slice] = xp.fft.fft(vol[:,:,idx_slice], axis=0)
-            if (np.abs(a) > 1e-5) or (np.abs(b) > 1e-5):
-                vol[:,:,idx_slice] *= xp.exp(1j * 2 * xp.pi * (self._dim[0] / self._dim[2] * a * self.kx + self._dim[1] / self._dim[2] * b * self.ky) * self.nz[:,:,idx_slice])
-            if np.abs(a) > 1e-5:
-                vol[:,:,idx_slice] = xp.fft.ifft(vol[:,:,idx_slice], axis=0)
-            if np.abs(b) > 1e-5:
-                vol[:,:,idx_slice] = xp.fft.ifft(vol[:,:,idx_slice], axis=1)
-        
-        return vol
+            tile = xp.ascontiguousarray(vol[:, :, idx_slice].copy()).astype(xp.complex64, copy=False)
+
+            if abs(float(b)) > 1e-5:
+                tile = xp.fft.fft(tile, axis=1).astype(xp.complex64, copy=False)
+            if abs(float(a)) > 1e-5:
+                tile = xp.fft.fft(tile, axis=0).astype(xp.complex64, copy=False)
+
+            if (abs(float(a)) > 1e-5) or (abs(float(b)) > 1e-5):
+                arg = (
+                    two_pi * (
+                        c1 * a * self.kx +
+                        c2 * b * self.ky
+                    ) * self.nz[:, :, idx_slice]
+                ).astype(xp.float32, copy=False)
+
+                phase = xp.exp((xp.complex64(1j) * arg).astype(xp.complex64, copy=False))
+                tile = (tile * phase).astype(xp.complex64, copy=False)
+
+            if abs(float(a)) > 1e-5:
+                tile = xp.fft.ifft(tile, axis=0).astype(xp.complex64, copy=False)
+            if abs(float(b)) > 1e-5:
+                tile = xp.fft.ifft(tile, axis=1).astype(xp.complex64, copy=False)
+
+            vol[:, :, idx_slice] = tile
+
+        return xp.ascontiguousarray(vol)
 
     def _shear_transforms_for_3D_rot(self, vol, a, b, dim):
         if dim == 0:
@@ -333,6 +396,6 @@ class Image3DRotation:
             rot_obj = self._rotate_zxy_volume(obj, rotmat)
 
         if self._object_type == 'potential':
-            rot_obj = xp.real(rot_obj)
+            rot_obj = xp.real(rot_obj).astype(xp.float32, copy=False)
         return rot_obj
             

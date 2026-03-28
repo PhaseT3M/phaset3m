@@ -7,8 +7,6 @@ from typing import Mapping, Sequence, Tuple
 import matplotlib.pyplot as plt
 import numpy as np
 from matplotlib.gridspec import GridSpec
-from mpl_toolkits.axes_grid1 import ImageGrid, make_axes_locatable
-from scipy.ndimage import rotate as rotate_np
 from PhaseT3M.process.tqdmnd import tqdmnd
 
 try:
@@ -178,24 +176,23 @@ class TomographicReconstruction(
             self._incident_wave = xp.ones([self._num_tilts,self._object_shape[0],self._object_shape[1]], dtype=xp.complex64)
         
         # Normalize initial incident wave
-        self._incident_wave = self._incident_wave \
+        self._incident_wave = (self._incident_wave \
                             / xp.sqrt(xp.sum(xp.abs(self._incident_wave)**2, axis = (1,2))).reshape(-1,1,1) \
-                            * xp.sqrt(self._incident_wave.shape[1]*self._incident_wave.shape[2])
-
-        self._incident_wave_initial = self._incident_wave.copy()
+                            * xp.sqrt(self._incident_wave.shape[1]*self._incident_wave.shape[2])).astype(xp.complex64)
 
         # predicted wave
         self._predicted_exit_waves = xp.ones([self._num_tilts,self._object_shape[0],self._object_shape[1]], dtype=xp.complex64)
 
         if self._object_padding_px != [0, 0]:
             # padded initial incident wave
-            self._incident_wave = xp.ones([self._num_tilts,self._padded_px[0],self._padded_px[1]], dtype=xp.complex64)
-
-            self._incident_wave_initial = self._incident_wave.copy()
+            self._incident_wave = xp.pad(self._incident_wave,
+                                    ((0, 0), (self._object_padding_px[0], self._object_padding_px[0]),(self._object_padding_px[1], self._object_padding_px[1]),),
+                                    mode="constant", constant_values=1).astype(xp.complex64)
 
             # padded predicted wave
             self._predicted_exit_waves = xp.ones([self._num_tilts,self._padded_px[0],self._padded_px[1]], dtype=xp.complex64)
 
+        self._incident_wave_initial = self._incident_wave.copy()
         self._cropping_px = (self._object_padding_px[0],self._object_padding_px[0]+self._object_shape[0],self._object_padding_px[1],self._object_padding_px[1]+self._object_shape[1])
         
 
@@ -288,11 +285,7 @@ class TomographicReconstruction(
     def reconstruct(
         self,
         num_iter: int = 20,
-        reconstruction_method: str = "gradient-descent",
-        reconstruction_parameter: float = 1.0,
-        reconstruction_parameter_a: float = None,
-        reconstruction_parameter_b: float = None,
-        reconstruction_parameter_c: float = None,
+        #reconstruction_method: str = "gradient-descent",
         seed_random: int = None,
         step_size: float = 0.01,
         normalization_min: float = 1,
@@ -334,22 +327,10 @@ class TomographicReconstruction(
         --------
         max_iter: int, optional
             Maximum number of iterations to run
-        reconstruction_method: str, optional
-            Specifies which reconstruction algorithm to use, one of:
-            "generalized-projections",
-            "DM_AP" (or "difference-map_alternating-projections"),
-            "RAAR" (or "relaxed-averaged-alternating-reflections"),
-            "RRR" (or "relax-reflect-reflect"),
-            "SUPERFLIP" (or "charge-flipping"), or
-            "GD" (or "gradient_descent")
-        reconstruction_parameter: float, optional
-            Reconstruction parameter for various reconstruction methods above.
-        reconstruction_parameter_a: float, optional
-            Reconstruction parameter a for reconstruction_method='generalized-projections'.
-        reconstruction_parameter_b: float, optional
-            Reconstruction parameter b for reconstruction_method='generalized-projections'.
-        reconstruction_parameter_c: float, optional
-            Reconstruction parameter c for reconstruction_method='generalized-projections'.
+        # reconstruction_method: str, optional
+        #     Specifies which reconstruction algorithm to use, one of:
+        #     "GD" (or "gradient_descent")
+        #     ...further development later.. 
         seed_random : int, optional
             Seed for the random number generator.
         step_size : float, optional
@@ -416,15 +397,9 @@ class TomographicReconstruction(
         self : TomographicReconstruction
             The instance of TomographicReconstruction for method chaining.
         """
+
         asnumpy = self._asnumpy
         xp = self._xp
-
-        if (reconstruction_method == "GD" or reconstruction_method == "gradient-descent"):
-            use_projection_scheme = False
-            projection_a = None
-            projection_b = None
-            projection_c = None
-            reconstruction_parameter = None
 
         # initialization
         if store_iterations and (not hasattr(self, "object_iterations") or reset):
@@ -434,6 +409,7 @@ class TomographicReconstruction(
 
         if reset:
             self._object = self._object_initial.copy()
+            self._rot_object = self._object_initial.copy()
             self._incident_wave = self._incident_wave_initial.copy()
             self._aberrations_coefs = self._aberrations_coefs_initial.copy()
             self._image_shift_coefs = self._image_shift_coefs_initial.copy()
@@ -448,10 +424,7 @@ class TomographicReconstruction(
             self._chi_function_m = self._chi_function_m_initial.copy()
             self._chi_function_v = self._chi_function_v_initial.copy()
 
-            if use_projection_scheme:
-                self._residual_waves = [None] * self._num_tilts
-            else:
-                self._residual_waves = None
+            self._residual_waves = None
 
         elif reset is None:
             if hasattr(self, "error"):
@@ -464,10 +437,7 @@ class TomographicReconstruction(
                 )
             else:
                 self.error_iterations = []
-                if use_projection_scheme:
-                    self._residual_waves = [None] * self._num_tilts
-                else:
-                    self._residual_waves = None
+                self._residual_waves = None
 
         np.random.seed(seed_random)
         
@@ -488,7 +458,6 @@ class TomographicReconstruction(
             tilt_indices = np.arange(self._num_tilts)
             np.random.shuffle(tilt_indices)
 
-            old_rot_matrix = np.eye(3)  # identity
 
             for tilt_index in tilt_indices:
                 
@@ -497,21 +466,21 @@ class TomographicReconstruction(
                 tilt_error = 0.0
 
                 # 3D rotation
+                self._rot_object = self._object.copy() # rotated object
                 rot_matrix = self._tilt_orientation_matrices[self._active_tilt_index]
-                if np.sum(np.abs(rot_matrix-np.eye(3))) > 0.001 or self._num_tilts > 1:
-                    self._object = self._rotate3d.rotate_3d(self._object, rot_matrix @ old_rot_matrix.T)
+
+                if np.sum(np.abs(rot_matrix-np.eye(3))) > 0.01 or self._num_tilts > 1:
+                    self._rot_object = self._rotate3d.rotate_3d(self._rot_object, rot_matrix)
 
                 object_sliced = self._project_sliced_object(
-                    self._object, self._num_slices
+                    self._rot_object, self._num_slices
                 )
-
-                if not use_projection_scheme:
-                    object_sliced_old = object_sliced.copy()
+                object_sliced_old = object_sliced.copy()
 
                 # pad
                 object_sliced = xp.pad(object_sliced, ((0,0) \
-                                                        ,(self._object_padding_px[0],self._object_padding_px[1]) \
-                                                        ,(self._object_padding_px[0],self._object_padding_px[1])))
+                                                        ,(self._object_padding_px[0],self._object_padding_px[0]) \
+                                                        ,(self._object_padding_px[1],self._object_padding_px[1])))
                     
                 if a0 < fix_chi_func_iter:
                     self._chi_function[self._active_tilt_index] =  (xp.matmul(self._aberrations_coefs[self._active_tilt_index], self._aberrations_basis.T) 
@@ -522,36 +491,31 @@ class TomographicReconstruction(
                 (
                     propagated_waves,
                     complex_object,
-                    predicted_exit_waves,
+                    predicted_detector_waves,
                     self._residual_waves,
                     tilt_error,
                 ) = self._forward(
                     object_sliced,
                     self._incident_wave[tilt_index],
                     self._amplitudes[tilt_index],
-                    self._residual_waves,
-                    use_projection_scheme,
-                    projection_a,
-                    projection_b,
-                    projection_c,
                 )
-                self.predicted_exit_waves = predicted_exit_waves
-                self.exit_waves = self._predicted_exit_waves[self._active_tilt_index]
+                # print(predicted_detector_waves.shape)
+                # self.predicted_detector_waves = predicted_detector_waves
+                # self.exit_waves = self._predicted_exit_waves[self._active_tilt_index]
                 
                 # adjoint operator
                 object_sliced, self._incident_wave[tilt_index] = self._adjoint(
-                    object_sliced,
-                    self._incident_wave[tilt_index],
-                    complex_object,
-                    propagated_waves,
-                    self._residual_waves,
+                    current_object = object_sliced,
+                    current_incident_wave=self._incident_wave[tilt_index],
+                    complex_object=complex_object,
+                    propagated_waves=propagated_waves,
+                    residual_waves=self._residual_waves,
+                    predicted_detector_waves=predicted_detector_waves,
                     fix_chi_func= a0 < fix_chi_func_iter,
                     fix_aberrations_coefs= a0 < fix_aberrations_coefs_iter,
                     aberrations_coefs=self._aberrations_coefs[tilt_index],
                     fix_image_shift_coefs= a0 < fix_image_shift_iter,
                     image_shift_coefs=self._image_shift_coefs[tilt_index],
-                    predicted_exit_waves=predicted_exit_waves,
-                    use_projection_scheme=use_projection_scheme,
                     step_size=step_size,
                     chi_func_step_size=chi_func_step_size,
                     aberrations_step_size=aberrations_step_size,
@@ -563,18 +527,17 @@ class TomographicReconstruction(
                 # crop
                 object_sliced = object_sliced[:,self._cropping_px[0]:self._cropping_px[1],self._cropping_px[2]:self._cropping_px[3]]
                 
-                if not use_projection_scheme:
-                    object_sliced -= object_sliced_old
-
+                object_sliced -= object_sliced_old
 
                 object_update = self._expand_sliced_object(
                     object_sliced, self._num_voxels
                 )
                 
+                #object_update
                 if collective_tilt_updates:
                     collective_object += self._rotate3d.rotate_3d(object_update, rot_matrix.T)
                 else:
-                    self._object += object_update
+                    self._object += self._rotate3d.rotate_3d(object_update, rot_matrix.T)
 
                     # Contraints
                     (
@@ -594,8 +557,6 @@ class TomographicReconstruction(
                         object_imag_positivity=object_imag_positivity,
                     )
                     
-                old_rot_matrix = rot_matrix
-
 
                 # Normalize Error
                 tilt_error /= (
@@ -603,9 +564,6 @@ class TomographicReconstruction(
                     * self._num_defocus
                 )
                 error += tilt_error
-
-            if np.sum(np.abs(rot_matrix-np.eye(3))) > 0.001 or self._num_tilts >1:
-                self._object = self._rotate3d.rotate_3d(self._object, old_rot_matrix.T)
             
 
             # 3D Contraints
