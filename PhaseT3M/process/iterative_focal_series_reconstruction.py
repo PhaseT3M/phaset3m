@@ -3,7 +3,7 @@
 # 03.27.2025, major update (by Juhyeok Lee): reconstruction update
 
 import warnings, time
-from typing import Mapping, Sequence, Tuple, Union
+from typing import Mapping, Sequence, Tuple, Union, Literal
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -115,6 +115,8 @@ class FocalSeriesReconstruction(
 
     def preprocess(
         self,
+        object_optimizer: Literal["GD", "adam"] = "GD",
+        aberration_optimizer: Literal["GD", "adam"] = "adam",
         amplitude_normalization: bool =  True,
         aberrations_max_angular_order: int = 1,
         aberrations_max_radial_order: int = 2,
@@ -125,7 +127,11 @@ class FocalSeriesReconstruction(
         
         xp = self._xp
         asnumpy = self._asnumpy
-        
+
+        # set additional metadata
+        self._object_optimizer = object_optimizer
+        self._aberration_optimizer = aberration_optimizer
+
         if self._datastack is None:
             raise ValueError(
                 (
@@ -245,21 +251,22 @@ class FocalSeriesReconstruction(
         # create temperal coherence envelop function (treatment of temperal coherence)
         self._temperal_coherence_envelop_function = xp.exp(-1/4*(defocus_spread)**2 * (self._aberrations_basis.T[self._C1_ind]/2)**2).reshape([self._padded_px[0], self._padded_px[1]])
         
-        # adam optimizer
-        self._aberrations_coefs_m = xp.zeros([1, self._num_defocus, self._aberrations_basis.shape[1]], dtype=xp.float32)
-        self._aberrations_coefs_v = xp.zeros([1, self._num_defocus, self._aberrations_basis.shape[1]], dtype=xp.float32)
-        self._aberrations_coefs_m_initial = self._aberrations_coefs_m.copy()
-        self._aberrations_coefs_v_initial = self._aberrations_coefs_v.copy()
+        if self._aberration_optimizer == 'adam':
+            # adam optimizer
+            self._aberrations_coefs_m = xp.zeros([1, self._num_defocus, self._aberrations_basis.shape[1]], dtype=xp.float32)
+            self._aberrations_coefs_v = xp.zeros([1, self._num_defocus, self._aberrations_basis.shape[1]], dtype=xp.float32)
+            self._aberrations_coefs_m_initial = self._aberrations_coefs_m.copy()
+            self._aberrations_coefs_v_initial = self._aberrations_coefs_v.copy()
 
-        self._image_shift_coefs_m = xp.zeros([1, self._num_defocus, self._image_shift_basis.shape[1]], dtype=xp.float32)
-        self._image_shift_coefs_v = xp.zeros([1, self._num_defocus, self._image_shift_basis.shape[1]], dtype=xp.float32)
-        self._image_shift_coefs_m_initial = self._image_shift_coefs_m.copy()
-        self._image_shift_coefs_v_initial = self._image_shift_coefs_v.copy()
+            self._image_shift_coefs_m = xp.zeros([1, self._num_defocus, self._image_shift_basis.shape[1]], dtype=xp.float32)
+            self._image_shift_coefs_v = xp.zeros([1, self._num_defocus, self._image_shift_basis.shape[1]], dtype=xp.float32)
+            self._image_shift_coefs_m_initial = self._image_shift_coefs_m.copy()
+            self._image_shift_coefs_v_initial = self._image_shift_coefs_v.copy()
 
-        self._chi_function_m = xp.zeros([1, self._num_defocus, self._padded_px[0], self._padded_px[1]], dtype=xp.float32)
-        self._chi_function_v = xp.zeros([1, self._num_defocus, self._padded_px[0], self._padded_px[1]], dtype=xp.float32)
-        self._chi_function_m_initial = self._chi_function_m.copy()
-        self._chi_function_v_initial = self._chi_function_v.copy()
+            self._chi_function_m = xp.zeros([1, self._num_defocus, self._padded_px[0], self._padded_px[1]], dtype=xp.float32)
+            self._chi_function_v = xp.zeros([1, self._num_defocus, self._padded_px[0], self._padded_px[1]], dtype=xp.float32)
+            self._chi_function_m_initial = self._chi_function_m.copy()
+            self._chi_function_v_initial = self._chi_function_v.copy()
 
         for tilt_index in tqdmnd(
             1,
@@ -397,13 +404,13 @@ class FocalSeriesReconstruction(
             self._chi_function = self._chi_function_initial.copy()
             self.error_iterations = []
 
-            # adam
-            self._aberrations_coefs_m = self._aberrations_coefs_m_initial.copy()
-            self._aberrations_coefs_v = self._aberrations_coefs_v_initial.copy()
-            self._image_shift_coefs_m = self._image_shift_coefs_m_initial.copy()
-            self._image_shift_coefs_v = self._image_shift_coefs_v_initial.copy()
-            self._chi_function_m = self._chi_function_m_initial.copy()
-            self._chi_function_v = self._chi_function_v_initial.copy()
+            if self._aberration_optimizer == 'adam':
+                self._aberrations_coefs_m = self._aberrations_coefs_m_initial.copy()
+                self._aberrations_coefs_v = self._aberrations_coefs_v_initial.copy()
+                self._image_shift_coefs_m = self._image_shift_coefs_m_initial.copy()
+                self._image_shift_coefs_v = self._image_shift_coefs_v_initial.copy()
+                self._chi_function_m = self._chi_function_m_initial.copy()
+                self._chi_function_v = self._chi_function_v_initial.copy()
 
             self._residual_waves = None
 

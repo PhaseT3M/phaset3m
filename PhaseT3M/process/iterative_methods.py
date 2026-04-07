@@ -340,7 +340,6 @@ class Reconstruction_methods():
         residual_waves,
         aberrations_basis,
         step_size,
-        normalization_min,
     ):
         """
         Gradient for aberrations correction
@@ -358,38 +357,32 @@ class Reconstruction_methods():
             aberrations basis
         step_size: float, optional
             Update step size
-        normalization_min: float, optional
-            Probe normalization minimum as a fraction of the maximum overlap intensity
 
         Returns
         --------
-        aberrations_coefs: np.ndarray
-            Updated aberrations coefficients
+        image_shift_coefs: np.ndarray
+            Updated image shift coefficients
         """
 
         xp = self._xp
-        beta = [0.9, 0.999]
-        eps = 1e-24
 
         # aberration coefs-update
         predicted_detector_waves = xp.conj(xp.fft.fft2(predicted_detector_waves)) 
-        # exit_normalization = xp.abs(predicted_exit_waves) ** 2 
-        # exit_normalization = 1 / xp.sqrt(
-        #     1e-16
-        #     + ((1 - normalization_min) * exit_normalization) ** 2
-        #     + (normalization_min * xp.max(exit_normalization)) ** 2
-        # )
-
         tmp_residual = (predicted_detector_waves*xp.fft.fft2(residual_waves)).reshape(-1, self._padded_px[0]*self._padded_px[1])
         aberrations_grad = xp.real(2j*xp.matmul(tmp_residual, aberrations_basis)) 
 
-        # adam
-        self._image_shift_coefs_m[self._active_tilt_index] = beta[0]*self._image_shift_coefs_m[self._active_tilt_index] + (1-beta[0])*aberrations_grad
-        self._image_shift_coefs_v[self._active_tilt_index] = beta[1]*self._image_shift_coefs_v[self._active_tilt_index] + (1-beta[1])*aberrations_grad**2
-        
+        if self._aberration_optimizer == 'adam': # adam
+            beta = [0.9, 0.999]
+            eps = 1e-24
 
-        image_shift_coefs += step_size * (self._image_shift_coefs_m[self._active_tilt_index]/(1-beta[0]**(self._active_iter+1))) \
-                                    /(xp.sqrt(self._image_shift_coefs_v[self._active_tilt_index]/(1-beta[1]**(self._active_iter+1)))+eps)       
+            self._image_shift_coefs_m[self._active_tilt_index] = beta[0]*self._image_shift_coefs_m[self._active_tilt_index] + (1-beta[0])*aberrations_grad
+            self._image_shift_coefs_v[self._active_tilt_index] = beta[1]*self._image_shift_coefs_v[self._active_tilt_index] + (1-beta[1])*aberrations_grad**2
+            
+
+            image_shift_coefs += step_size * (self._image_shift_coefs_m[self._active_tilt_index]/(1-beta[0]**(self._active_iter+1))) \
+                                        /(xp.sqrt(self._image_shift_coefs_v[self._active_tilt_index]/(1-beta[1]**(self._active_iter+1)))+eps)      
+        else: # GD
+            image_shift_coefs += step_size * aberrations_grad 
 
         return image_shift_coefs
 
@@ -400,7 +393,6 @@ class Reconstruction_methods():
         residual_waves,
         aberrations_basis,
         step_size,
-        normalization_min,
     ):
         """
         Gradient for aberrations correction
@@ -418,8 +410,6 @@ class Reconstruction_methods():
             aberrations basis
         step_size: float, optional
             Update step size
-        normalization_min: float, optional
-            Probe normalization minimum as a fraction of the maximum overlap intensity
 
         Returns
         --------
@@ -428,152 +418,28 @@ class Reconstruction_methods():
         """
 
         xp = self._xp
-        beta = [0.9, 0.999]
-        eps = 1e-24
+
 
         # aberration coefs-update
         predicted_detector_waves = xp.conj(xp.fft.fft2(predicted_detector_waves)) 
-        # exit_normalization = xp.abs(predicted_exit_waves) ** 2 
-        # exit_normalization = 1 / xp.sqrt(
-        #     1e-16
-        #     + ((1 - normalization_min) * exit_normalization) ** 2
-        #     + (normalization_min * xp.max(exit_normalization)) ** 2
-        # )
-
         tmp_residual = (predicted_detector_waves*xp.fft.fft2(residual_waves)).reshape(-1, self._padded_px[0]*self._padded_px[1])
         aberrations_grad = xp.real(2j*xp.matmul(tmp_residual, aberrations_basis)) 
 
-        # adam
-        self._aberrations_coefs_m[self._active_tilt_index] = beta[0]*self._aberrations_coefs_m[self._active_tilt_index] + (1-beta[0])*aberrations_grad
-        self._aberrations_coefs_v[self._active_tilt_index] = beta[1]*self._aberrations_coefs_v[self._active_tilt_index] + (1-beta[1])*aberrations_grad**2
-        
+        if self._aberration_optimizer == 'adam': # adam
+            beta = [0.9, 0.999]
+            eps = 1e-24
 
-        aberrations_coefs += step_size * (self._aberrations_coefs_m[self._active_tilt_index]/(1-beta[0]**(self._active_iter+1))) \
-                                    /(xp.sqrt(self._aberrations_coefs_v[self._active_tilt_index]/(1-beta[1]**(self._active_iter+1)))+eps)       
+            self._aberrations_coefs_m[self._active_tilt_index] = beta[0]*self._aberrations_coefs_m[self._active_tilt_index] + (1-beta[0])*aberrations_grad
+            self._aberrations_coefs_v[self._active_tilt_index] = beta[1]*self._aberrations_coefs_v[self._active_tilt_index] + (1-beta[1])*aberrations_grad**2
+        
+            aberrations_coefs += step_size * (self._aberrations_coefs_m[self._active_tilt_index]/(1-beta[0]**(self._active_iter+1))) \
+                                        /(xp.sqrt(self._aberrations_coefs_v[self._active_tilt_index]/(1-beta[1]**(self._active_iter+1)))+eps)    
+        else: # GD
+            aberrations_coefs += step_size * aberrations_grad        
+            # aberrations_coefs += step_size * 1e5 * xp.real(2j*xp.matmul(tmp_residual, aberrations_basis/xp.max(aberrations_basis, axis=0)))  # 1e5 -> adjust step size
 
         return aberrations_coefs
  
-    # def _aberrations_gradient_descent_adjoint(
-    #     self,
-    #     aberrations_coefs,
-    #     predicted_detector_waves,
-    #     residual_waves,
-    #     aberrations_basis,
-    #     step_size,
-    #     normalization_min,
-    # ):
-    #     """
-    #     Gradient for aberrations correction
-    #     Computes aberration coefs gradient and update.
-
-    #     Parameters
-    #     --------
-    #     aberrations_coefs: np.ndarray
-    #         Current aberrations coefficients
-    #     predicted_detector_waves: np.ndarray
-    #         predicted detector waves estimate
-    #     residual_waves: np.ndarray
-    #         Updated residual_waves difference
-    #     aberrations_basis: np.ndarray
-    #         aberrations basis
-    #     step_size: float, optional
-    #         Update step size
-    #     normalization_min: float, optional
-    #         Probe normalization minimum as a fraction of the maximum overlap intensity
-
-    #     Returns
-    #     --------
-    #     aberrations_coefs: np.ndarray
-    #         Updated aberrations coefficients
-    #     """
-
-    #     xp = self._xp
-    #     beta = [0.9, 0.999]
-    #     eps = 1e-18
-        
-    #     # analycal solution for step size
-    #     # gg = xp.real(1j*(xp.fft.fft2(predicted_detector_waves)*xp.fft.fft2(xp.conj(predicted_detector_waves/xp.abs(predicted_detector_waves))))[:,:,:,None]
-    #     #             *(aberrations_basis.reshape(1,self._padded_px[0],self._padded_px[1],-1))
-    #     #             ).reshape(predicted_detector_waves.shape[0], self._padded_px[0]*self._padded_px[1],aberrations_basis.shape[-1])     
-    #     rr = (self._amplitudes[self._active_tilt_index] - xp.abs(predicted_detector_waves)).reshape(-1, self._padded_px[0]*self._padded_px[1])
-
-    #     # aberration coefs-update
-    #     predicted_detector_waves = xp.conj(xp.fft.fft2(predicted_detector_waves)) 
-
-    #     tmp_residual = (predicted_detector_waves*xp.fft.fft2(residual_waves)).reshape(-1, self._padded_px[0]*self._padded_px[1])
-    #     aberrations_grad = xp.real(2j*xp.matmul(tmp_residual, aberrations_basis)) 
-    #     # print(aberrations_basis.shape)
-
-    #     gg = (1j*xp.fft.ifft2(xp.conj(predicted_detector_waves)[:,:,:,None]
-    #                 *(aberrations_basis.reshape(1,self._padded_px[0],self._padded_px[1],-1)),
-    #                 axes=(1, 2))*
-    #                 (xp.fft.ifft2(xp.conj(predicted_detector_waves))/xp.abs(xp.fft.ifft2(xp.conj(predicted_detector_waves))))[:,:,:,None]                                 
-    #                 ).reshape(predicted_detector_waves.shape[0], self._padded_px[0]*self._padded_px[1],aberrations_basis.shape[-1])
-   
-    #     gg *= aberrations_grad[:,None,:]
-    #     gg = xp.real(gg)
-                
-    #     step_size = -xp.sum(rr[:,:,None]*gg, axis=(0, 1))/(xp.sum(gg * gg, axis=(0, 1))+eps)
-    #     # print(step_size, xp.sum(gg * gg, axis=(0, 1)), xp.sum(rr[:,:,None]*gg, axis=(0, 1)))
-
-    #     aberrations_coefs += step_size * aberrations_grad     
-    #     # print(step_size * aberrations_grad, (step_size * aberrations_grad).shape)
-    #     return aberrations_coefs
-
-    # def _aberrations_gradient_descent_adjoint(
-    #     self,
-    #     aberrations_coefs,
-    #     predicted_detector_waves,
-    #     residual_waves,
-    #     aberrations_basis,
-    #     step_size,
-    #     normalization_min,
-    # ):
-    #     """
-    #     Gradient for aberrations correction
-    #     Computes aberration coefs gradient and update.
-
-    #     Parameters
-    #     --------
-    #     aberrations_coefs: np.ndarray
-    #         Current aberrations coefficients
-    #     predicted_detector_waves: np.ndarray
-    #         predicted detector waves estimate
-    #     residual_waves: np.ndarray
-    #         Updated residual_waves difference
-    #     aberrations_basis: np.ndarray
-    #         aberrations basis
-    #     step_size: float, optional
-    #         Update step size
-    #     normalization_min: float, optional
-    #         Probe normalization minimum as a fraction of the maximum overlap intensity
-
-    #     Returns
-    #     --------
-    #     aberrations_coefs: np.ndarray
-    #         Updated aberrations coefficients
-    #     """
-
-    #     xp = self._xp
-
-    #     # aberration coefs-update
-    #     predicted_detector_waves = xp.conj(xp.fft.fft2(predicted_detector_waves)) 
-    #     exit_normalization = xp.abs(predicted_detector_waves) ** 2 
-    #     exit_normalization = 1 / xp.sqrt(
-    #         1e-16
-    #         + ((1 - normalization_min) * exit_normalization) ** 2
-    #         + (normalization_min * xp.max(exit_normalization)) ** 2
-    #     )
-        
-    #     tmp_residual = predicted_detector_waves*xp.fft.fft2(residual_waves)*exit_normalization
-    #     #tmp_residual = xp.fft.fft2(xp.conj(predicted_detector_waves))*xp.fft.fft2(residual_waves)*exit_normalization
-    #     tmp_residual = tmp_residual.reshape(-1, self._padded_px[0]*self._padded_px[1])
-
-    #     #aberrations_coefs += step_size * xp.real(2j*xp.matmul(tmp_residual, aberrations_basis))        
-    #     aberrations_coefs += step_size * 1e5 * xp.real(2j*xp.matmul(tmp_residual, aberrations_basis/xp.max(aberrations_basis, axis=0)))  # 1e5 -> adjust step size
-
-    #     return aberrations_coefs
-
 
     def _chi_gradient_descent_adjoint(
         self,
@@ -607,9 +473,6 @@ class Reconstruction_methods():
         """
 
         xp = self._xp
-        beta = [0.9, 0.999]
-        eps = 1e-8
-        normalization_min= 1
         
         # aberration coefs-update
         predicted_detector_waves = xp.conj(xp.fft.fft2(predicted_detector_waves)) 
@@ -622,66 +485,19 @@ class Reconstruction_methods():
         tmp_residual = predicted_detector_waves*xp.fft.fft2(residual_waves)*exit_normalization
         chi_function_grad = xp.real(2j*tmp_residual)
 
-        # adam
-        self._chi_function_m[self._active_tilt_index] = beta[0]*self._chi_function_m[self._active_tilt_index] + (1-beta[0])*chi_function_grad
-        self._chi_function_v[self._active_tilt_index] = beta[1]*self._chi_function_v[self._active_tilt_index] + (1-beta[1])*chi_function_grad**2
-        
+        if self._aberration_optimizer == 'adam': # adam
+            beta = [0.9, 0.999]
+            eps = 1e-8
 
-        chi_function += step_size * (self._chi_function_m[self._active_tilt_index]/(1-beta[0]**(self._active_iter+1))) \
-                                    /(xp.max(xp.sqrt(self._chi_function_v[self._active_tilt_index]/(1-beta[1]**(self._active_iter+1))))+eps)       
-
+            self._chi_function_m[self._active_tilt_index] = beta[0]*self._chi_function_m[self._active_tilt_index] + (1-beta[0])*chi_function_grad
+            self._chi_function_v[self._active_tilt_index] = beta[1]*self._chi_function_v[self._active_tilt_index] + (1-beta[1])*chi_function_grad**2
+            
+            chi_function += step_size * (self._chi_function_m[self._active_tilt_index]/(1-beta[0]**(self._active_iter+1))) \
+                                        /(xp.max(xp.sqrt(self._chi_function_v[self._active_tilt_index]/(1-beta[1]**(self._active_iter+1))))+eps)       
+        else:
+            chi_function += step_size * chi_function_grad
 
         return chi_function
-    
-
-    # def _chi_gradient_descent_adjoint(
-    #     self,
-    #     chi_function,
-    #     predicted_detector_waves,
-    #     residual_waves,
-    #     step_size,
-    #     normalization_min,
-    # ):
-    #     """
-    #     Gradient for chi function correction
-    #     Computes chi function gradient and update.
-
-    #     Parameters
-    #     --------
-    #     chi_function: np.ndarray
-    #         chi function
-    #     predicted_detector_waves: np.ndarray
-    #         predicted detector waves estimate
-    #     residual_waves: np.ndarray
-    #         Updated residual_waves difference
-    #     step_size: float, optional
-    #         Update step size
-    #     normalization_min: float, optional
-    #         Nrmalization minimum
-
-    #     Returns
-    #     --------
-    #     chi_function: np.ndarray
-    #         Updated chi function
-    #     """
-
-    #     xp = self._xp
-
-    #     # aberration coefs-update
-    #     predicted_detector_waves = xp.conj(xp.fft.fft2(predicted_detector_waves)) 
-    #     exit_normalization = xp.abs(predicted_detector_waves) ** 2 
-    #     exit_normalization = 1 / xp.sqrt(
-    #         1e-16
-    #         + ((1 - normalization_min) * exit_normalization) ** 2
-    #         + (normalization_min * xp.max(exit_normalization)) ** 2
-    #     )
-        
-    #     tmp_residual = predicted_detector_waves*xp.fft.fft2(residual_waves)*exit_normalization
-    #     #tmp_residual = xp.fft.fft2(xp.conj(predicted_detector_waves))*xp.fft.fft2(residual_waves)*exit_normalization
-      
-    #     chi_function += step_size * xp.real(2j*tmp_residual)
-
-    #     return chi_function
     
 
     def _gradient_descent_adjoint(
@@ -861,7 +677,6 @@ class Reconstruction_methods():
                     residual_waves,
                     self._image_shift_basis,
                     image_shift_step_size,
-                    normalization_min,
                 )
             # aberrations correction
             if not fix_aberrations_coefs:
@@ -871,7 +686,6 @@ class Reconstruction_methods():
                     residual_waves,
                     self._aberrations_basis,
                     aberrations_step_size,
-                    normalization_min,
                 )
 
         # apply conjugate transfer function  
