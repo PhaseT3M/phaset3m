@@ -380,7 +380,8 @@ class Reconstruction_methods():
             
 
             image_shift_coefs += step_size * (self._image_shift_coefs_m[self._active_tilt_index]/(1-beta[0]**(self._active_iter+1))) \
-                                        /(xp.sqrt(self._image_shift_coefs_v[self._active_tilt_index]/(1-beta[1]**(self._active_iter+1)))+eps)      
+                                        /(xp.sqrt(self._image_shift_coefs_v[self._active_tilt_index]/(1-beta[1]**(self._active_iter+1)))+eps)
+
         else: # GD
             image_shift_coefs += step_size * aberrations_grad 
 
@@ -418,7 +419,6 @@ class Reconstruction_methods():
         """
 
         xp = self._xp
-
 
         # aberration coefs-update
         predicted_detector_waves = xp.conj(xp.fft.fft2(predicted_detector_waves)) 
@@ -557,16 +557,26 @@ class Reconstruction_methods():
             )
 
             if self._object_type == "complex":
-                current_object[s] += step_size * (
-                        (-1j * xp.conj(obj) * xp.conj(save_waves) * residual_waves)
-                    * incident_normalization
-                )
+                object_grad = ((-1j * xp.conj(obj) * xp.conj(save_waves) * residual_waves)
+                                * incident_normalization
+                            )
             else:
-                current_object[s] += step_size * (
-                        xp.real(-1j * xp.conj(obj) * xp.conj(save_waves) * residual_waves)
-                    * incident_normalization
-                )
+                object_grad = (xp.real(-1j * xp.conj(obj) * xp.conj(save_waves) * residual_waves)
+                                * incident_normalization
+                            )
+            
+            if self._object_optimizer == 'adam': # adam
+                beta = [0.9, 0.999]
+                eps = 1e-8
 
+                self._object_grad_m[self._active_tilt_index] = beta[0]*self._object_grad_m[self._active_tilt_index] + (1-beta[0])*object_grad
+                self._object_grad_v[self._active_tilt_index] = beta[1]*self._object_grad_v[self._active_tilt_index] + (1-beta[1])*xp.abs(object_grad)**2
+
+                current_object[s] += step_size * (self._object_grad_m[self._active_tilt_index]/(1-beta[0]**(self._active_iter+1))) \
+                                            /((xp.sqrt(self._object_grad_v[self._active_tilt_index]/(1-beta[1]**(self._active_iter+1))))+eps) 
+            else:
+                current_object[s] += step_size * object_grad
+            
 
             # back-transmit
             residual_waves *= xp.conj(obj)

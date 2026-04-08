@@ -244,8 +244,14 @@ class TomographicReconstruction(
         # create temperal coherence envelop function (treatment of temperal coherence)
         self._temperal_coherence_envelop_function = xp.exp(-1/4*(defocus_spread)**2 * (self._aberrations_basis.T[self._C1_ind]/2)**2).reshape([self._padded_px[0], self._padded_px[1]])
         
+        # optimizer data
+        if self._object_optimizer == 'adam':
+            self._object_grad_m = xp.zeros([self._num_tilts, self._padded_px[0], self._padded_px[1]], dtype=xp.float32)
+            self._object_grad_v = xp.zeros([self._num_tilts, self._padded_px[0], self._padded_px[1]], dtype=xp.float32)
+            self._object_grad_m_initial = self._object_grad_m.copy()
+            self._object_grad_v_initial = self._object_grad_v.copy()
+
         if self._aberration_optimizer == 'adam':
-            # adam optimizer
             self._aberrations_coefs_m = xp.zeros([self._num_tilts, self._num_defocus, self._aberrations_basis.shape[1]], dtype=xp.float32)
             self._aberrations_coefs_v = xp.zeros([self._num_tilts, self._num_defocus, self._aberrations_basis.shape[1]], dtype=xp.float32)
             self._aberrations_coefs_m_initial = self._aberrations_coefs_m.copy()
@@ -421,6 +427,10 @@ class TomographicReconstruction(
             self._image_shift_coefs = self._image_shift_coefs_initial.copy()
             self._chi_function = self._chi_function_initial.copy()
             self.error_iterations = []
+
+            if self._object_optimizer == 'adam':
+                self._object_grad_m = self._object_grad_m_initial.copy()
+                self._object_grad_v = self._object_grad_v_initial.copy()
 
             if self._aberration_optimizer == 'adam':
                 self._aberrations_coefs_m = self._aberrations_coefs_m_initial.copy()
