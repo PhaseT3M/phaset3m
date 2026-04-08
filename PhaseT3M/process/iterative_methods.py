@@ -549,12 +549,14 @@ class Reconstruction_methods():
             obj = complex_object[s]          
             
             # object-update
-            incident_normalization = xp.abs(save_waves) ** 2
-            incident_normalization = 1 / xp.sqrt(
-                1e-16
-                + ((1 - normalization_min) * incident_normalization) ** 2
-                + (normalization_min * xp.max(incident_normalization)) ** 2
-            )
+            
+            # incident_normalization = xp.abs(save_waves) ** 2
+            # incident_normalization = 1 / xp.sqrt(
+            #     1e-16
+            #     + ((1 - normalization_min) * incident_normalization) ** 2
+            #     + (normalization_min * xp.max(incident_normalization)) ** 2
+            # )
+            incident_normalization =1
 
             if self._object_type == "complex":
                 object_grad = ((-1j * xp.conj(obj) * xp.conj(save_waves) * residual_waves)
@@ -565,15 +567,13 @@ class Reconstruction_methods():
                                 * incident_normalization
                             )
             
-            if self._object_optimizer == 'adam': # adam
-                beta = [0.9, 0.999]
+            if self._object_optimizer == 'rmsprop': # rmsprop
+                beta2 = 0.99
                 eps = 1e-8
 
-                self._object_grad_m[self._active_tilt_index] = beta[0]*self._object_grad_m[self._active_tilt_index] + (1-beta[0])*object_grad
-                self._object_grad_v[self._active_tilt_index] = beta[1]*self._object_grad_v[self._active_tilt_index] + (1-beta[1])*xp.abs(object_grad)**2
-
-                current_object[s] += step_size * (self._object_grad_m[self._active_tilt_index]/(1-beta[0]**(self._active_iter+1))) \
-                                            /((xp.sqrt(self._object_grad_v[self._active_tilt_index]/(1-beta[1]**(self._active_iter+1))))+eps) 
+                self._object_grad_s[self._active_tilt_index][s] = beta2*self._object_grad_s[self._active_tilt_index][s] + (1-beta2)*xp.mean(xp.abs(object_grad)**2)
+                # current_object[s] += step_size * (object_grad/(xp.sqrt(self._object_grad_s[self._active_tilt_index][s])+eps)) 
+                current_object[s] += step_size * (object_grad/(xp.sqrt(xp.mean(xp.abs(object_grad)**2))+eps)) 
             else:
                 current_object[s] += step_size * object_grad
             
