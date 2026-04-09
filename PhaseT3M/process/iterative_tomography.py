@@ -104,7 +104,7 @@ class TomographicReconstruction(
 
     def preprocess(
         self,
-        reconstruction_rotation_method: Literal["interpolation", "Fourier_sheer"] = "interpolation",
+        object_rotation_method: Literal["interpolation", "Fourier_sheer"] = "interpolation",
         object_optimizer: Literal["GD", "rmsprop"] = "GD",
         aberration_optimizer: Literal["GD", "adam"] = "adam",
         amplitude_normalization: bool = True,
@@ -119,7 +119,7 @@ class TomographicReconstruction(
         asnumpy = self._asnumpy
 
         # set additional metadata
-        self._reconstruction_rotation_method = reconstruction_rotation_method
+        self._object_rotation_method = object_rotation_method
         self._object_optimizer = object_optimizer
         self._aberration_optimizer = aberration_optimizer
 
@@ -282,7 +282,7 @@ class TomographicReconstruction(
         self._chi_function_initial = self._chi_function.copy()
 
         # 3D rotation class
-        self._rotate3d = Image3DRotation(shape=self._object.shape, rot_method = self._reconstruction_rotation_method, object_type = self._object_type, xp=self._xp, MEMORY_MAX_DIM= 600*600*600)
+        self._rotate3d = Image3DRotation(shape=self._object.shape, rot_method = self._object_rotation_method, object_type = self._object_type, xp=self._xp, MEMORY_MAX_DIM= 600*600*600)
 
         if self._device == "gpu":
             xp._default_memory_pool.free_all_blocks()
