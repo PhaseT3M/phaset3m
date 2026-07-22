@@ -108,8 +108,8 @@ class TomographicReconstruction(
         object_optimizer: Literal["GD", "rmsprop"] = "GD",
         aberration_optimizer: Literal["GD", "adam"] = "adam",
         amplitude_normalization: bool = True,
-        aberrations_max_angular_order: int = 1,
-        aberrations_max_radial_order: int = 2,
+        aberrations_max_angular_order: int = 2,
+        aberrations_max_radial_order: int = 4,
         defocus_spread: float = 0, # Cc/(delta E/ E)
         progress_bar: bool = True,
         **kwargs,
@@ -238,6 +238,24 @@ class TomographicReconstruction(
         self._image_shift_coefs = xp.zeros([self._num_tilts, self._num_defocus, self._image_shift_basis.shape[1]])
         self._C1_ind = np.argmin(np.abs(self._aberrations_mn[:, 0] - 1.0) + self._aberrations_mn[:, 1])
 
+        # two-fold astigmatism (C12a, C12b) indices, only present if
+        # aberrations_max_angular_order >= 2 (m=1, n=2 requires (m+n) odd)
+        aberrations_index = {tuple(int(v) for v in row): i for i, row in enumerate(self._aberrations_mn)}
+        self._A1a_ind = aberrations_index.get((1, 2, 0))
+        self._A1b_ind = aberrations_index.get((1, 2, 1))
+        if (self._A1a_ind is None or self._A1b_ind is None) and any(
+            getattr(ds, "A1x", None) is not None or getattr(ds, "A1y", None) is not None
+            for ds in self._datastack
+        ):
+            warnings.warn(
+                (
+                    "datastack.A1x/A1y were provided but the aberrations basis does not "
+                    "contain the C12 (astigmatism) term - pass aberrations_max_angular_order>=2 "
+                    "to preprocess() to fit/include A1. A1x/A1y will be ignored."
+                ),
+                UserWarning,
+            )
+
         # create chi function
         self._chi_function = xp.zeros([self._num_tilts, self._num_defocus, self._padded_px[0], self._padded_px[1]], dtype=xp.float32)
         
@@ -273,6 +291,10 @@ class TomographicReconstruction(
         ):
             self._amplitudes[tilt_index] = self._normalize_intensities(self._datastack[tilt_index].data, amplitude_normalization = amplitude_normalization)
             self._aberrations_coefs[tilt_index, :, self._C1_ind] = xp.array(-1*self._datastack[tilt_index].defocus)
+            if self._A1a_ind is not None and getattr(self._datastack[tilt_index], "A1x", None) is not None:
+                self._aberrations_coefs[tilt_index, :, self._A1a_ind] = xp.array(self._datastack[tilt_index].A1x)
+            if self._A1b_ind is not None and getattr(self._datastack[tilt_index], "A1y", None) is not None:
+                self._aberrations_coefs[tilt_index, :, self._A1b_ind] = xp.array(self._datastack[tilt_index].A1y)
             self._chi_function[tilt_index] = (xp.matmul(self._aberrations_coefs[tilt_index], self._aberrations_basis.T)
                                                 +xp.matmul(self._image_shift_coefs[tilt_index], self._image_shift_basis.T)
                                                 ).reshape(-1, self._padded_px[0], self._padded_px[1]).astype(xp.float32)
